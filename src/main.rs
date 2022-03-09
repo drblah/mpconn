@@ -47,14 +47,14 @@ fn make_socket(interface: &str, local_address: Ipv4Addr, local_port: u16) -> Udp
     udp_socket
 }
 
-async fn make_tunnel() -> tokio_tun::Tun {
+async fn make_tunnel(tun_ip: Ipv4Addr) -> tokio_tun::Tun {
     let tun = TunBuilder::new()
         .name("")
         .tap(false)
         .packet_info(false)
         .mtu(1424)
         .up()
-        .address(Ipv4Addr::new(172, 0, 0, 1))
+        .address(tun_ip)
         .broadcast(Ipv4Addr::BROADCAST)
         .netmask(Ipv4Addr::new(255, 255, 255, 0))
         .try_build()
@@ -128,12 +128,18 @@ async fn main() {
 
     println!("Using config: {:?}", settings);
 
+    let mut sockets: Vec<UdpFramed<BytesCodec>> = Vec::new();
 
-    let socket = make_socket("enp5s0", Ipv4Addr::new(10, 0, 0, 111), 5679);
+    for dev in settings.send_devices {
+        sockets.push(
+            UdpFramed::new(
+                make_socket(dev.udp_iface.as_str(), dev.udp_listen_addr, dev.udp_listen_port),
+                BytesCodec::new()
+            )
+        );
+    }
 
-    let mut sockets = vec![UdpFramed::new(socket, BytesCodec::new())];
-
-    let tun = make_tunnel().await;
+    let tun = make_tunnel(settings.tun_ip).await;
 
     let (mut tun_reader, mut tun_writer) = tokio::io::split(tun);
 
@@ -150,7 +156,7 @@ async fn main() {
 
             tun_result = tun_reader.read(&mut tun_buf) => {
                 let len = tun_result.unwrap();
-                let destination = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 111)), 45654);
+                let destination = SocketAddr::new(IpAddr::V4(settings.remote_addr), settings.remote_port);
                 await_sockets_send(&mut sockets, bytes::Bytes::copy_from_slice(&tun_buf[..len]), destination).await;
             }
 
