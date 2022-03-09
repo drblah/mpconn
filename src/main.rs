@@ -6,11 +6,24 @@ use std::net::UdpSocket as std_udp;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::os::unix::io::AsRawFd;
 use std::sync::Arc;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UdpSocket;
 use tokio_tun::TunBuilder;
 use tokio_util::codec::BytesCodec;
 use tokio_util::udp::UdpFramed;
+
+use clap::Parser;
+use serde_json;
+
+mod settings;
+
+#[derive(Parser, Debug)]
+#[clap(author, version, about, long_about = None)]
+struct Args {
+    #[clap(long)]
+    config: String
+}
+
 
 fn make_socket(interface: &str, local_address: Ipv4Addr, local_port: u16) -> UdpSocket {
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, None).unwrap();
@@ -86,8 +99,36 @@ async fn await_sockets_receive(sockets: &mut Vec<UdpFramed<BytesCodec>>) -> (Byt
     item_resolved.unwrap()
 }
 
+async fn await_sockets_send(
+    sockets: &mut Vec<UdpFramed<BytesCodec>>,
+    packet: bytes::Bytes,
+    target: SocketAddr,
+) {
+    let mut futures = Vec::new();
+
+    for socket in sockets {
+        let send_tuple = (packet.clone(), target);
+        futures.push(socket.send(send_tuple))
+    }
+
+    for fut in futures {
+        fut.await.unwrap()
+    }
+}
+
 #[tokio::main]
 async fn main() {
+    let args = Args::parse();
+
+    let settings: settings::SettingsFile = serde_json::from_str(
+        std::fs::read_to_string(args.config)
+            .unwrap()
+            .as_str()
+    ).unwrap();
+
+    println!("Using config: {:?}", settings);
+
+
     let socket = make_socket("enp5s0", Ipv4Addr::new(10, 0, 0, 111), 5679);
 
     let mut sockets = vec![UdpFramed::new(socket, BytesCodec::new())];
@@ -109,12 +150,8 @@ async fn main() {
 
             tun_result = tun_reader.read(&mut tun_buf) => {
                 let len = tun_result.unwrap();
-
-                for socket in &mut sockets {
-                    let destination = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 111)), 45654);
-                    let send_tuple = (bytes::Bytes::copy_from_slice(&tun_buf[..len]), destination);
-                    socket.send(send_tuple).await.unwrap()
-                }
+                let destination = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 111)), 45654);
+                await_sockets_send(&mut sockets, bytes::Bytes::copy_from_slice(&tun_buf[..len]), destination).await;
             }
 
         }
