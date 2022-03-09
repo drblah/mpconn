@@ -74,7 +74,7 @@ async fn socket_wrapper(socket: Arc<UdpSocket>) -> (usize, SocketAddr, Vec<u8>) 
     (len, addr, buff.to_vec())
 }
 
-async fn await_sockets(sockets: &mut Vec<UdpFramed<BytesCodec>>) -> (BytesMut, SocketAddr) {
+async fn await_sockets_receive(sockets: &mut Vec<UdpFramed<BytesCodec>>) -> (BytesMut, SocketAddr) {
     let mut futures = Vec::new();
 
     for socket in sockets {
@@ -100,7 +100,7 @@ async fn main() {
 
     loop {
         tokio::select! {
-            socket_result = await_sockets(&mut sockets) => {
+            socket_result = await_sockets_receive(&mut sockets) => {
                 let (recieved_bytes, addr) = socket_result;
                 println!("Got {} bytes from {} on UDP", recieved_bytes.len() , addr);
                 //println!("{:?}", recieved_bytes);
