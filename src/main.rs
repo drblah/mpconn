@@ -117,7 +117,7 @@ async fn await_sockets_send(
     }
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     let args = Args::parse();
 
