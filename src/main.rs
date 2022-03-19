@@ -5,7 +5,6 @@ use socket2::{Domain, Socket, Type};
 use std::net::UdpSocket as std_udp;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::os::unix::io::AsRawFd;
-use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UdpSocket;
 use tokio_tun::TunBuilder;
@@ -80,14 +79,6 @@ async fn make_tunnel(tun_ip: Ipv4Addr) -> tokio_tun::Tun {
     tun
 }
 
-async fn socket_wrapper(socket: Arc<UdpSocket>) -> (usize, SocketAddr, Vec<u8>) {
-    let mut buff = [0u8; 65535];
-
-    let (len, addr) = socket.recv_from(&mut buff).await.unwrap();
-
-    (len, addr, buff.to_vec())
-}
-
 async fn await_sockets_receive(sockets: &mut Vec<UdpFramed<BytesCodec>>) -> (BytesMut, SocketAddr) {
     let mut futures = Vec::new();
 
@@ -152,7 +143,7 @@ async fn main() {
     loop {
         tokio::select! {
             socket_result = await_sockets_receive(&mut sockets) => {
-                let (recieved_bytes, addr) = socket_result;
+                let (recieved_bytes, _addr) = socket_result;
                 //println!("Got {} bytes from {} on UDP", recieved_bytes.len() , addr);
                 //println!("{:?}", recieved_bytes);
 
