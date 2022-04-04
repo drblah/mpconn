@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use bytes::BytesMut;
 use futures::future::select_all;
 use futures::{FutureExt, SinkExt, StreamExt};
@@ -16,6 +17,7 @@ use clap::Parser;
 use serde_json;
 
 mod async_pcap;
+mod local;
 mod messages;
 mod settings;
 
@@ -117,6 +119,9 @@ async fn main() {
         serde_json::from_str(std::fs::read_to_string(args.config).unwrap().as_str()).unwrap();
 
     println!("Using config: {:?}", settings);
+
+    let local = local::Local::new("layer3");
+
 
     let mut sockets: Vec<UdpFramed<BytesCodec>> = Vec::new();
 
