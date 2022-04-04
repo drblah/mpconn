@@ -15,6 +15,7 @@ use crate::messages::Messages;
 use clap::Parser;
 use serde_json;
 
+mod async_pcap;
 mod messages;
 mod settings;
 
