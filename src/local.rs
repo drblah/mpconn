@@ -7,6 +7,7 @@ use tokio::io::{ReadHalf, WriteHalf};
 use tokio_tun::Tun;
 use tokio_tun::TunBuilder;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+use crate::settings::SettingsFile;
 
 
 pub struct Local {
@@ -15,7 +16,7 @@ pub struct Local {
 }
 
 impl Local {
-    pub fn new(layer: &str) -> Self {
+    pub fn new(layer: &str, settings: SettingsFile) -> Self {
         match layer {
             "layer2" => {
                 let cap = AsyncPcapStream::new("enp5s0".to_string()).unwrap();
@@ -28,7 +29,7 @@ impl Local {
                 }
             },
             "layer3" => {
-                let tun = make_tunnel(Ipv4Addr::new(127, 0,0, 1));
+                let tun = make_tunnel(settings.tun_ip);
 
                 let (reader, writer) = tokio::io::split(tun);
 
