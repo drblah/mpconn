@@ -1,4 +1,3 @@
-use std::borrow::Borrow;
 use bytes::BytesMut;
 use futures::future::select_all;
 use futures::{FutureExt, SinkExt, StreamExt};
@@ -120,12 +119,12 @@ async fn main() {
 
     println!("Using config: {:?}", settings);
 
-    let local = local::Local::new("layer3");
+
 
 
     let mut sockets: Vec<UdpFramed<BytesCodec>> = Vec::new();
 
-    for dev in settings.send_devices {
+    for dev in &settings.send_devices {
         sockets.push(UdpFramed::new(
             make_socket(
                 dev.udp_iface.as_str(),
@@ -136,11 +135,12 @@ async fn main() {
         ));
     }
 
-    let tun = make_tunnel(settings.tun_ip).await;
+    //let tun = make_tunnel(settings.tun_ip).await;
 
-    let (mut tun_reader, mut tun_writer) = tokio::io::split(tun);
+    //let (mut tun_reader, mut tun_writer) = tokio::io::split(tun);
+    let mut local = local::Local::new("layer3", settings.clone());
 
-    let mut tun_buf = [0u8; 65535];
+    let mut tun_buf = BytesMut::with_capacity(65535);
 
     let mut tx_counter: usize = 0;
     let mut rx_counter: usize = 0;
@@ -174,24 +174,26 @@ async fn main() {
 
                 if deserialized_packet.seq > rx_counter {
                     rx_counter = deserialized_packet.seq;
-                    tun_writer.write(deserialized_packet.bytes.as_slice()).await.unwrap();
+                    let mut output = BytesMut::from(deserialized_packet.bytes.as_slice());
+                    local.write(&mut output).await;
                 }
 
 
 
             }
 
-            tun_result = tun_reader.read(&mut tun_buf) => {
-                let len = tun_result.unwrap();
+            _tun_result = local.read(&mut tun_buf) => {
                 let packet = messages::Packet{
                     seq: tx_counter,
-                    bytes: tun_buf[..len].to_vec()
+                    bytes: tun_buf[..].to_vec()
                 };
                 tx_counter = tx_counter + 1;
 
                 let serialized_packet = bincode::serialize(&Messages::Packet(packet)).unwrap();
 
                 await_sockets_send(&mut sockets, bytes::Bytes::copy_from_slice(&serialized_packet), destination).await;
+
+                tun_buf.clear();
             }
 
         }
