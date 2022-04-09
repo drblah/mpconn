@@ -10,7 +10,6 @@ use tokio_util::udp::UdpFramed;
 
 use crate::messages::Messages;
 use clap::Parser;
-use serde_json;
 
 mod async_pcap;
 mod local;
@@ -84,26 +83,30 @@ async fn main() {
 
     println!("Using config: {:?}", settings);
 
-
-
-
     let mut sockets: Vec<UdpFramed<BytesCodec>> = Vec::new();
 
-    for dev in &settings.send_devices {
-        sockets.push(UdpFramed::new(
-            make_socket(
-                dev.udp_iface.as_str(),
-                dev.udp_listen_addr,
-                dev.udp_listen_port,
-            ),
-            BytesCodec::new(),
-        ));
+    for dev in &settings.remotes {
+
+        match dev {
+            settings::RemoteTypes::UDP { iface, listen_addr, listen_port } => {
+                sockets.push(UdpFramed::new(
+                    make_socket(
+                        iface.as_str(),
+                        *listen_addr,
+                        *listen_port,
+                    ),
+                    BytesCodec::new(),
+                ));
+            }
+        }
+
+
     }
 
     //let tun = make_tunnel(settings.tun_ip).await;
 
     //let (mut tun_reader, mut tun_writer) = tokio::io::split(tun);
-    let mut local = local::Local::new("layer3", settings.clone());
+    let mut local = local::Local::new(settings.clone());
 
     let mut tun_buf = BytesMut::with_capacity(65535);
 
@@ -152,7 +155,7 @@ async fn main() {
                     seq: tx_counter,
                     bytes: tun_buf[..].to_vec()
                 };
-                tx_counter = tx_counter + 1;
+                tx_counter += 1;
 
                 let serialized_packet = bincode::serialize(&Messages::Packet(packet)).unwrap();
 
@@ -163,4 +166,5 @@ async fn main() {
 
         }
     }
+
 }

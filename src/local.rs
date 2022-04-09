@@ -6,7 +6,8 @@ use tokio::io::{ReadHalf, WriteHalf};
 use tokio_tun::Tun;
 use tokio_tun::TunBuilder;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use crate::settings::SettingsFile;
+use crate::settings;
+use crate::settings::{SettingsFile};
 
 
 pub struct Local {
@@ -15,10 +16,10 @@ pub struct Local {
 }
 
 impl Local {
-    pub fn new(layer: &str, settings: SettingsFile) -> Self {
-        match layer {
-            "layer2" => {
-                let cap = AsyncPcapStream::new("enp5s0".to_string()).unwrap();
+    pub fn new(settings: SettingsFile) -> Self {
+        match settings.local {
+            settings::LocalTypes::Layer2 { network_interface } => {
+                let cap = AsyncPcapStream::new(network_interface).unwrap();
 
                 let (reader, writer) = tokio::io::split(cap);
 
@@ -27,8 +28,8 @@ impl Local {
                     writer: LocalWriters::Layer2Writer(writer)
                 }
             },
-            "layer3" => {
-                let tun = make_tunnel(settings.tun_ip);
+            settings::LocalTypes::Layer3 { tun_ip, peer_tun_addr: _peer_tun_addr } => {
+                let tun = make_tunnel(tun_ip);
 
                 let (reader, writer) = tokio::io::split(tun);
 
@@ -36,9 +37,6 @@ impl Local {
                     reader: LocalReaders::Layer3Reader(reader),
                     writer: LocalWriters::Layer3Writer(writer)
                 }
-            },
-            _ => {
-                panic!("Unknown layer type!")
             }
         }
     }
