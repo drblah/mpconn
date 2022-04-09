@@ -145,7 +145,7 @@ async fn main() {
     let mut tx_counter: usize = 0;
     let mut rx_counter: usize = 0;
 
-    let destination = SocketAddr::new(IpAddr::V4(settings.remote_addr), settings.remote_port);
+    let destination = SocketAddr::new(IpAddr::V4(settings.peer_addr), settings.peer_port);
     loop {
         tokio::select! {
             socket_result = await_sockets_receive(&mut sockets) => {
