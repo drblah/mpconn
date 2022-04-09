@@ -1,10 +1,10 @@
 use futures::ready;
-use pcap::{Active, Capture, Device};
+use pcap::{Active, Capture};
 use std::io::{self};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::io::unix::AsyncFd;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead};
 use tokio::io::{AsyncWrite, ReadBuf};
 
 pub struct AsyncPcapStream {

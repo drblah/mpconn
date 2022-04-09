@@ -1,12 +1,11 @@
 use crate::async_pcap::AsyncPcapStream;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::ops::Deref;
+use std::net::{Ipv4Addr};
 use std::os::unix::io::AsRawFd;
 use bytes::BytesMut;
 use tokio::io::{ReadHalf, WriteHalf};
 use tokio_tun::Tun;
 use tokio_tun::TunBuilder;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use crate::settings::SettingsFile;
 
 

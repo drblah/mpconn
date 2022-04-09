@@ -4,10 +4,7 @@ use futures::{FutureExt, SinkExt, StreamExt};
 use socket2::{Domain, Socket, Type};
 use std::net::UdpSocket as std_udp;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::os::unix::io::AsRawFd;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UdpSocket;
-use tokio_tun::TunBuilder;
 use tokio_util::codec::BytesCodec;
 use tokio_util::udp::UdpFramed;
 
@@ -47,38 +44,6 @@ fn make_socket(interface: &str, local_address: Ipv4Addr, local_port: u16) -> Udp
     let udp_socket: UdpSocket = UdpSocket::from_std(std_udp).unwrap();
 
     udp_socket
-}
-
-async fn make_tunnel(tun_ip: Ipv4Addr) -> tokio_tun::Tun {
-    let tun = TunBuilder::new()
-        .name("")
-        .tap(false)
-        .packet_info(false)
-        .mtu(1424)
-        .up()
-        .address(tun_ip)
-        .broadcast(Ipv4Addr::BROADCAST)
-        .netmask(Ipv4Addr::new(255, 255, 255, 0))
-        .try_build()
-        .unwrap();
-
-    println!("-----------");
-    println!("tun created");
-    println!("-----------");
-
-    println!(
-        "┌ name: {}\n├ fd: {}\n├ mtu: {}\n├ flags: {}\n├ address: {}\n├ destination: {}\n├ broadcast: {}\n└ netmask: {}",
-        tun.name(),
-        tun.as_raw_fd(),
-        tun.mtu().unwrap(),
-        tun.flags().unwrap(),
-        tun.address().unwrap(),
-        tun.destination().unwrap(),
-        tun.broadcast().unwrap(),
-        tun.netmask().unwrap(),
-    );
-
-    tun
 }
 
 async fn await_sockets_receive(sockets: &mut Vec<UdpFramed<BytesCodec>>) -> (BytesMut, SocketAddr) {
