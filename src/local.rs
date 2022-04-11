@@ -1,18 +1,17 @@
 use crate::async_pcap::AsyncPcapStream;
-use std::net::{Ipv4Addr};
-use std::os::unix::io::AsRawFd;
+use crate::settings;
+use crate::settings::SettingsFile;
 use bytes::BytesMut;
+use std::net::Ipv4Addr;
+use std::os::unix::io::AsRawFd;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::io::{ReadHalf, WriteHalf};
 use tokio_tun::Tun;
 use tokio_tun::TunBuilder;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use crate::settings;
-use crate::settings::{SettingsFile};
-
 
 pub struct Local {
     pub reader: LocalReaders,
-    pub writer: LocalWriters
+    pub writer: LocalWriters,
 }
 
 impl Local {
@@ -23,19 +22,22 @@ impl Local {
 
                 let (reader, writer) = tokio::io::split(cap);
 
-                Local{
+                Local {
                     reader: LocalReaders::Layer2Reader(reader),
-                    writer: LocalWriters::Layer2Writer(writer)
+                    writer: LocalWriters::Layer2Writer(writer),
                 }
-            },
-            settings::LocalTypes::Layer3 { tun_ip, peer_tun_addr: _peer_tun_addr } => {
+            }
+            settings::LocalTypes::Layer3 {
+                tun_ip,
+                peer_tun_addr: _peer_tun_addr,
+            } => {
                 let tun = make_tunnel(tun_ip);
 
                 let (reader, writer) = tokio::io::split(tun);
 
-                Local{
+                Local {
                     reader: LocalReaders::Layer3Reader(reader),
-                    writer: LocalWriters::Layer3Writer(writer)
+                    writer: LocalWriters::Layer3Writer(writer),
                 }
             }
         }
@@ -56,17 +58,16 @@ impl Local {
             l3reader.read_buf(buffer).await.unwrap();
         }
     }
-
 }
 
 pub enum LocalReaders {
     Layer2Reader(ReadHalf<AsyncPcapStream>),
-    Layer3Reader(ReadHalf<Tun>)
+    Layer3Reader(ReadHalf<Tun>),
 }
 
 pub enum LocalWriters {
     Layer2Writer(WriteHalf<AsyncPcapStream>),
-    Layer3Writer(WriteHalf<Tun>)
+    Layer3Writer(WriteHalf<Tun>),
 }
 
 fn make_tunnel(tun_ip: Ipv4Addr) -> tokio_tun::Tun {

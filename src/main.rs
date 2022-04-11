@@ -14,6 +14,7 @@ use clap::Parser;
 mod async_pcap;
 mod local;
 mod messages;
+mod remote;
 mod settings;
 
 #[derive(Parser, Debug)]
@@ -86,21 +87,18 @@ async fn main() {
     let mut sockets: Vec<UdpFramed<BytesCodec>> = Vec::new();
 
     for dev in &settings.remotes {
-
         match dev {
-            settings::RemoteTypes::UDP { iface, listen_addr, listen_port } => {
+            settings::RemoteTypes::UDP {
+                iface,
+                listen_addr,
+                listen_port,
+            } => {
                 sockets.push(UdpFramed::new(
-                    make_socket(
-                        iface.as_str(),
-                        *listen_addr,
-                        *listen_port,
-                    ),
+                    make_socket(iface.as_str(), *listen_addr, *listen_port),
                     BytesCodec::new(),
                 ));
             }
         }
-
-
     }
 
     //let tun = make_tunnel(settings.tun_ip).await;
@@ -166,5 +164,4 @@ async fn main() {
 
         }
     }
-
 }
