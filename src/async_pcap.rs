@@ -38,7 +38,20 @@ impl AsyncWrite for AsyncPcapStream {
 
             match guard.try_io(|inner| match inner.get_ref().sendpacket(buf) {
                 Ok(_) => Ok(buf.len()),
-                Err(e) => panic!("Failed to send packet! {}", e),
+                Err(e) => {
+                    match e {
+                        pcap::Error::PcapError(e) => {
+                            match e.as_str() {
+                                "send: Message too long" => {
+                                    println!("Tried to send too large packet of size: {}, skipping", buf.len());
+                                    Ok(buf.len())
+                                },
+                                _ => panic!("Failed to send packet! {}", e)
+                            }
+                        },
+                        _ => panic!("Failed to send packet! {}", e)
+                    }
+                },
             }) {
                 Ok(result) => return Poll::Ready(result),
                 Err(_would_block) => continue,
