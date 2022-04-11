@@ -1,0 +1,18 @@
+{
+  "peer_addr": "172.16.200.3",
+  "peer_port": 10001,
+  "keep_alive": true,
+  "keep_alive_interval": 10,
+  "local": {
+    "type": "Layer2",
+    "network_interface": "gw_veth1"
+  },
+  "remotes": [
+    {
+      "type": "UDP",
+      "iface": "veth1",
+      "listen_addr": "172.16.200.2",
+      "listen_port": 10000
+    }
+  ]
+}
