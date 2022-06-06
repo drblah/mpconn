@@ -1,5 +1,6 @@
 use crate::settings::RemoteTypes;
 use bytes::{Bytes, BytesMut};
+use futures::prelude::*;
 use futures::stream::{SplitSink, SplitStream, StreamExt};
 use socket2::{Domain, Socket, Type};
 use std::net::UdpSocket as std_udp;
@@ -7,7 +8,6 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use tokio::net::UdpSocket;
 use tokio_util::codec::BytesCodec;
 use tokio_util::udp::UdpFramed;
-use futures::prelude::*;
 
 pub enum RemoteReaders {
     UDPReader(SplitStream<UdpFramed<BytesCodec>>),
@@ -47,7 +47,7 @@ impl Remote {
 
     pub async fn write(&mut self, buffer: Bytes, destination: SocketAddr) {
         if let RemoteWriters::UDPWriter(udp_writer) = &mut self.writer {
-            udp_writer.send((buffer, destination) ).await.unwrap()
+            udp_writer.send((buffer, destination)).await.unwrap()
         }
     }
 
@@ -57,9 +57,11 @@ impl Remote {
 
             match outcome {
                 Ok(received) => received,
-                Err(e) => panic!("Failed to receive from UDP remote: {}", e)
+                Err(e) => panic!("Failed to receive from UDP remote: {}", e),
             }
-        } else { unreachable!() }
+        } else {
+            unreachable!()
+        }
     }
 }
 

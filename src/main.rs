@@ -1,14 +1,10 @@
 use bytes::BytesMut;
-use futures::future::select_all;
-use futures::{FutureExt, SinkExt, StreamExt};
-use socket2::{Domain, Socket, Type};
-use std::net::UdpSocket as std_udp;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
-use tokio::net::UdpSocket;
-use tokio_util::codec::BytesCodec;
-use tokio_util::udp::UdpFramed;
+use futures::future::{join_all, select_all};
+use futures::{FutureExt};
+use std::net::{IpAddr, SocketAddr};
 
 use crate::messages::Messages;
+use crate::remote::Remote;
 use clap::Parser;
 
 mod async_pcap;
@@ -24,55 +20,27 @@ struct Args {
     config: String,
 }
 
-fn make_socket(interface: &str, local_address: Ipv4Addr, local_port: u16) -> UdpSocket {
-    let socket = Socket::new(Domain::IPV4, Type::DGRAM, None).unwrap();
-
-    if let Err(err) = socket.bind_device(Some(interface.as_bytes())) {
-        if matches!(err.raw_os_error(), Some(libc::ENODEV)) {
-            panic!("error binding to device (`{}`): {}", interface, err);
-        } else {
-            panic!("unexpected error binding device: {}", err);
-        }
-    }
-
-    let address = SocketAddrV4::new(local_address, local_port);
-    socket.bind(&address.into()).unwrap();
-
-    let std_udp: std_udp = socket.into();
-    std_udp.set_nonblocking(true).unwrap();
-
-    let udp_socket: UdpSocket = UdpSocket::from_std(std_udp).unwrap();
-
-    udp_socket
-}
-
-async fn await_sockets_receive(sockets: &mut Vec<UdpFramed<BytesCodec>>) -> (BytesMut, SocketAddr) {
+async fn await_remotes_receive(remotes: &mut Vec<Remote>) -> (BytesMut, SocketAddr) {
     let mut futures = Vec::new();
 
-    for socket in sockets {
-        futures.push(socket.next().map(|e| e.unwrap()))
+    for remote in remotes {
+        futures.push(remote.read().boxed())
     }
 
     let (item_resolved, _ready_future_index, _remaining_futures) = select_all(futures).await;
 
-    item_resolved.unwrap()
+    item_resolved
 }
 
-async fn await_sockets_send(
-    sockets: &mut Vec<UdpFramed<BytesCodec>>,
-    packet: bytes::Bytes,
-    target: SocketAddr,
-) {
+
+async fn await_remotes_send(remotes: &mut Vec<Remote>, packet: bytes::Bytes, target: SocketAddr) {
     let mut futures = Vec::new();
 
-    for socket in sockets {
-        let send_tuple = (packet.clone(), target);
-        futures.push(socket.send(send_tuple))
+    for remote in remotes {
+        futures.push(remote.write(packet.clone(), target))
     }
 
-    for fut in futures {
-        fut.await.unwrap()
-    }
+    let _ = join_all(futures).await;
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -84,21 +52,10 @@ async fn main() {
 
     println!("Using config: {:?}", settings);
 
-    let mut sockets: Vec<UdpFramed<BytesCodec>> = Vec::new();
+    let mut remotes: Vec<Remote> = Vec::new();
 
     for dev in &settings.remotes {
-        match dev {
-            settings::RemoteTypes::UDP {
-                iface,
-                listen_addr,
-                listen_port,
-            } => {
-                sockets.push(UdpFramed::new(
-                    make_socket(iface.as_str(), *listen_addr, *listen_port),
-                    BytesCodec::new(),
-                ));
-            }
-        }
+        remotes.push(Remote::new(dev.clone()))
     }
 
     //let tun = make_tunnel(settings.tun_ip).await;
@@ -114,7 +71,7 @@ async fn main() {
     let destination = SocketAddr::new(IpAddr::V4(settings.peer_addr), settings.peer_port);
     loop {
         tokio::select! {
-            socket_result = await_sockets_receive(&mut sockets) => {
+            socket_result = await_remotes_receive(&mut remotes) => {
                 let (recieved_bytes, _addr) = socket_result;
                 //println!("Got {} bytes from {} on UDP", recieved_bytes.len() , addr);
                 //println!("{:?}", recieved_bytes);
@@ -157,7 +114,7 @@ async fn main() {
 
                 let serialized_packet = bincode::serialize(&Messages::Packet(packet)).unwrap();
 
-                await_sockets_send(&mut sockets, bytes::Bytes::copy_from_slice(&serialized_packet), destination).await;
+                await_remotes_send(&mut remotes, bytes::Bytes::copy_from_slice(&serialized_packet), destination).await;
 
                 tun_buf.clear();
             }
