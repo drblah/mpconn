@@ -12,6 +12,10 @@ The simplest form of multi connectivity is packet duplication, where each networ
 * UDP Remote transport
 * Multi connectivity via packet duplication on multiple network interfaces
 
+## Usage
+Each endpoint needs a host configuration. This configuration involves one or more remote endpoints to tunnel between, which Remote transport protocol to use and which layer to tunnel. Examples can be found in the test_tools directory along with bash scrpts for setting up network namespace based testing environments.
+On each endpoint, run `mpconn --config <host-config>.json`
+
 ## Todo
 * Hole punching for NAT traversal
 * QUIC Remote transport
