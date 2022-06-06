@@ -5,6 +5,7 @@ use std::net::{IpAddr, SocketAddr};
 
 use crate::messages::Messages;
 use crate::remote::Remote;
+use crate::peer_list::PeerList;
 use clap::Parser;
 use futures::stream::FuturesUnordered;
 
@@ -13,6 +14,7 @@ mod local;
 mod messages;
 mod remote;
 mod settings;
+mod peer_list;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -71,11 +73,14 @@ async fn main() {
     let mut tx_counter: usize = 0;
     let mut rx_counter: usize = 0;
 
-    let destination = SocketAddr::new(IpAddr::V4(settings.peer_addr), settings.peer_port);
+    let mut peer_list = PeerList::new(
+        Some(vec![SocketAddr::new(IpAddr::V4(settings.peer_addr), settings.peer_port)])
+    );
+
     loop {
         tokio::select! {
             socket_result = await_remotes_receive(&mut remotes) => {
-                let (recieved_bytes, _addr) = socket_result;
+                let (recieved_bytes, addr) = socket_result;
                 //println!("Got {} bytes from {} on UDP", recieved_bytes.len() , addr);
                 //println!("{:?}", recieved_bytes);
 
@@ -83,10 +88,12 @@ async fn main() {
                     Ok(decoded) => {
                         match decoded {
                             Messages::Packet(pkt) => {
+                                peer_list.add_peer(addr);
                                 pkt
                             },
                             Messages::Keepalive => {
-                                println!("Received keepalive msg.");
+                                println!("Received keepalive msg from: {:?}", addr);
+                                peer_list.add_peer(addr);
                                 continue
                             }
                         }
@@ -117,7 +124,10 @@ async fn main() {
 
                 let serialized_packet = bincode::serialize(&Messages::Packet(packet)).unwrap();
 
-                await_remotes_send(&mut remotes, bytes::Bytes::copy_from_slice(&serialized_packet), destination).await;
+                for peer in peer_list.get_peers() {
+                    await_remotes_send(&mut remotes, bytes::Bytes::copy_from_slice(&serialized_packet), peer).await;
+                }
+
 
                 tun_buf.clear();
             }
