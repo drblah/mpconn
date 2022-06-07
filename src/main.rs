@@ -1,11 +1,12 @@
 use bytes::BytesMut;
-use futures::future::{join_all, select_all};
-use futures::{FutureExt};
+use futures::future::{select_all};
+use futures::{FutureExt, StreamExt};
 use std::net::{IpAddr, SocketAddr};
 
 use crate::messages::Messages;
 use crate::remote::Remote;
 use clap::Parser;
+use futures::stream::FuturesUnordered;
 
 mod async_pcap;
 mod local;
@@ -21,7 +22,7 @@ struct Args {
 }
 
 async fn await_remotes_receive(remotes: &mut Vec<Remote>) -> (BytesMut, SocketAddr) {
-    let mut futures = Vec::new();
+    let futures = FuturesUnordered::new();
 
     for remote in remotes {
         futures.push(remote.read().boxed())
@@ -34,13 +35,15 @@ async fn await_remotes_receive(remotes: &mut Vec<Remote>) -> (BytesMut, SocketAd
 
 
 async fn await_remotes_send(remotes: &mut Vec<Remote>, packet: bytes::Bytes, target: SocketAddr) {
-    let mut futures = Vec::new();
+    let futures = FuturesUnordered::new();
 
     for remote in remotes {
         futures.push(remote.write(packet.clone(), target))
     }
 
-    let _ = join_all(futures).await;
+    let _ =  futures.collect::<Vec<_>>().await;
+
+    //join_all(futures).await;
 }
 
 #[tokio::main(flavor = "current_thread")]
