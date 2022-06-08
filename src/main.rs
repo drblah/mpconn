@@ -1,12 +1,12 @@
 use bytes::BytesMut;
-use futures::future::{select_all};
+use futures::future::select_all;
 use futures::{FutureExt, StreamExt};
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
 use crate::messages::Messages;
-use crate::remote::Remote;
 use crate::peer_list::PeerList;
+use crate::remote::Remote;
 use clap::Parser;
 use futures::stream::FuturesUnordered;
 use tokio::time;
@@ -14,9 +14,9 @@ use tokio::time;
 mod async_pcap;
 mod local;
 mod messages;
+mod peer_list;
 mod remote;
 mod settings;
-mod peer_list;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -37,7 +37,6 @@ async fn await_remotes_receive(remotes: &mut Vec<Remote>) -> (BytesMut, SocketAd
     item_resolved
 }
 
-
 async fn await_remotes_send(remotes: &mut Vec<Remote>, packet: bytes::Bytes, target: SocketAddr) {
     let futures = FuturesUnordered::new();
 
@@ -45,13 +44,24 @@ async fn await_remotes_send(remotes: &mut Vec<Remote>, packet: bytes::Bytes, tar
         futures.push(remote.write(packet.clone(), target))
     }
 
-    let _ =  futures.collect::<Vec<_>>().await;
+    let _ = futures.collect::<Vec<_>>().await;
 
     //join_all(futures).await;
 }
 
-fn maintenance(peer_list: &mut PeerList) {
+async fn maintenance(peer_list: &mut PeerList, remotes: &mut Vec<Remote>) {
     peer_list.prune_stale_peers();
+
+    let serialized_packet = bincode::serialize(&Messages::Keepalive).unwrap();
+
+    for peer in peer_list.get_peers() {
+        await_remotes_send(
+            remotes,
+            bytes::Bytes::copy_from_slice(&serialized_packet),
+            peer,
+        )
+        .await;
+    }
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -79,9 +89,10 @@ async fn main() {
     let mut tx_counter: usize = 0;
     let mut rx_counter: usize = 0;
 
-    let mut peer_list = PeerList::new(
-        Some(vec![SocketAddr::new(IpAddr::V4(settings.peer_addr), settings.peer_port)])
-    );
+    let mut peer_list = PeerList::new(Some(vec![SocketAddr::new(
+        IpAddr::V4(settings.peer_addr),
+        settings.peer_port,
+    )]));
 
     let mut maintenance_interval = time::interval(Duration::from_secs(5));
 
@@ -96,7 +107,6 @@ async fn main() {
                     Ok(decoded) => {
                         match decoded {
                             Messages::Packet(pkt) => {
-                                peer_list.add_peer(addr);
                                 pkt
                             },
                             Messages::Keepalive => {
@@ -141,7 +151,7 @@ async fn main() {
             }
 
             _ = maintenance_interval.tick() => {
-                maintenance(&mut peer_list);
+                maintenance(&mut peer_list, &mut remotes).await;
             }
 
         }
