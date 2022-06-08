@@ -2,12 +2,14 @@ use bytes::BytesMut;
 use futures::future::{select_all};
 use futures::{FutureExt, StreamExt};
 use std::net::{IpAddr, SocketAddr};
+use std::time::Duration;
 
 use crate::messages::Messages;
 use crate::remote::Remote;
 use crate::peer_list::PeerList;
 use clap::Parser;
 use futures::stream::FuturesUnordered;
+use tokio::time;
 
 mod async_pcap;
 mod local;
@@ -48,6 +50,10 @@ async fn await_remotes_send(remotes: &mut Vec<Remote>, packet: bytes::Bytes, tar
     //join_all(futures).await;
 }
 
+fn maintenance(peer_list: &mut PeerList) {
+    peer_list.prune_stale_peers();
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let args = Args::parse();
@@ -76,6 +82,8 @@ async fn main() {
     let mut peer_list = PeerList::new(
         Some(vec![SocketAddr::new(IpAddr::V4(settings.peer_addr), settings.peer_port)])
     );
+
+    let mut maintenance_interval = time::interval(Duration::from_secs(5));
 
     loop {
         tokio::select! {
@@ -130,6 +138,10 @@ async fn main() {
 
 
                 tun_buf.clear();
+            }
+
+            _ = maintenance_interval.tick() => {
+                maintenance(&mut peer_list);
             }
 
         }
