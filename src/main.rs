@@ -45,8 +45,6 @@ async fn await_remotes_send(remotes: &mut Vec<Remote>, packet: bytes::Bytes, tar
     }
 
     let _ = futures.collect::<Vec<_>>().await;
-
-    //join_all(futures).await;
 }
 
 async fn maintenance(peer_list: &mut PeerList, remotes: &mut Vec<Remote>) {
@@ -79,9 +77,6 @@ async fn main() {
         remotes.push(Remote::new(dev.clone()))
     }
 
-    //let tun = make_tunnel(settings.tun_ip).await;
-
-    //let (mut tun_reader, mut tun_writer) = tokio::io::split(tun);
     let mut local = local::Local::new(settings.clone());
 
     let mut tun_buf = BytesMut::with_capacity(65535);
