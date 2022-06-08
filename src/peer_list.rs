@@ -17,7 +17,7 @@ impl PeerList {
     pub fn new(peers: Option<Vec<SocketAddr>>) -> Self {
         let mut peer_list = PeerList {
             peers: HashMap::new(),
-            stale_time_limit: Duration::from_secs(10),
+            stale_time_limit: Duration::from_secs(30),
         };
 
         if let Some(peers) = peers {
@@ -71,7 +71,7 @@ impl PeerList {
         self.peers.retain(|_, peer| {
             now.duration_since(peer.last_seen)
                 .unwrap()
-                .gt(&self.stale_time_limit)
+                .lt(&self.stale_time_limit)
         });
 
         let pruned_size = self.peers.len();
