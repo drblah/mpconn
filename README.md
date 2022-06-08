@@ -7,8 +7,8 @@ The simplest form of multi connectivity is packet duplication, where each networ
 
 
 ## Current implemented features
-* Layer 2 tunneling (Ethernet over IP)
-* Layer 3 tunneling (IP over IP)
+* Layer 2 tunneling (Ethernet over transport layer)
+* Layer 3 tunneling (IP over transport layer)
 * UDP Remote transport
 * Multi connectivity via packet duplication on multiple network interfaces
 
