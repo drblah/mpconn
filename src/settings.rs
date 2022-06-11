@@ -22,6 +22,11 @@ pub enum RemoteTypes {
         listen_addr: Ipv4Addr,
         listen_port: u16,
     },
+    UDPLz4 {
+        iface: String,
+        listen_addr: Ipv4Addr,
+        listen_port: u16,
+    },
 }
 
 #[derive(Deserialize, Debug, Clone)]

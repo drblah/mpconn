@@ -11,10 +11,12 @@ use tokio_util::udp::UdpFramed;
 
 pub enum RemoteReaders {
     UDPReader(SplitStream<UdpFramed<BytesCodec>>),
+    UDPReaderLz4(SplitStream<UdpFramed<BytesCodec>>),
 }
 
 pub enum RemoteWriters {
     UDPWriter(SplitSink<UdpFramed<BytesCodec>, (Bytes, SocketAddr)>),
+    UDPWriterLz4(SplitSink<UdpFramed<BytesCodec>, (Bytes, SocketAddr)>),
 }
 
 pub struct Remote {
@@ -41,26 +43,52 @@ impl Remote {
                     reader: RemoteReaders::UDPReader(reader),
                     writer: RemoteWriters::UDPWriter(writer),
                 }
+            },
+            RemoteTypes::UDPLz4 {
+                iface,
+                listen_addr,
+                listen_port,
+            } => {
+                let socket = UdpFramed::new(
+                    make_socket(&iface, listen_addr, listen_port),
+                    BytesCodec::new(),
+                );
+
+                let (writer, reader) = socket.split();
+
+                Remote {
+                    reader: RemoteReaders::UDPReader(reader),
+                    writer: RemoteWriters::UDPWriter(writer),
+                }
             }
         }
     }
 
     pub async fn write(&mut self, buffer: Bytes, destination: SocketAddr) {
-        if let RemoteWriters::UDPWriter(udp_writer) = &mut self.writer {
-            udp_writer.send((buffer, destination)).await.unwrap()
+        match &mut self.writer {
+            RemoteWriters::UDPWriter(udp_writer) => {
+                udp_writer.send((buffer, destination)).await.unwrap()
+            },
+            RemoteWriters::UDPWriterLz4(_udplz4_writer) => {
+                unimplemented!()
+            }
         }
     }
 
     pub async fn read(&mut self) -> (BytesMut, SocketAddr) {
-        if let RemoteReaders::UDPReader(udp_reader) = &mut self.reader {
-            let outcome = udp_reader.next().await.unwrap();
 
-            match outcome {
-                Ok(received) => received,
-                Err(e) => panic!("Failed to receive from UDP remote: {}", e),
+        match &mut self.reader {
+            RemoteReaders::UDPReader(udp_reader) => {
+                let outcome = udp_reader.next().await.unwrap();
+
+                match outcome {
+                    Ok(received) => received,
+                    Err(e) => panic!("Failed to receive from UDP remote: {}", e),
+                }
+            },
+            RemoteReaders::UDPReaderLz4(_) => {
+                unimplemented!()
             }
-        } else {
-            unreachable!()
         }
     }
 }
