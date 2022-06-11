@@ -114,6 +114,7 @@ async fn main() {
                     Err(err) => {
                         // If we receive garbage, simply throw it away and continue.
                         println!("Unable do deserialize packet. Got error: {}", err);
+                        println!("{:?}", recieved_bytes);
                         continue
                     }
                 };

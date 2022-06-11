@@ -67,7 +67,6 @@ impl PeerList {
         let now = SystemTime::now();
         let old_size = self.peers.len();
 
-
         self.peers.retain(|_, peer| {
             now.duration_since(peer.last_seen)
                 .unwrap()

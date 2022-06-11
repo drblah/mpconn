@@ -2,6 +2,7 @@ use crate::settings::RemoteTypes;
 use bytes::{Bytes, BytesMut};
 use futures::prelude::*;
 use futures::stream::{SplitSink, SplitStream, StreamExt};
+use lz4_flex::{compress_prepend_size, decompress_size_prepended};
 use socket2::{Domain, Socket, Type};
 use std::net::UdpSocket as std_udp;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
@@ -43,7 +44,7 @@ impl Remote {
                     reader: RemoteReaders::UDPReader(reader),
                     writer: RemoteWriters::UDPWriter(writer),
                 }
-            },
+            }
             RemoteTypes::UDPLz4 {
                 iface,
                 listen_addr,
@@ -57,8 +58,8 @@ impl Remote {
                 let (writer, reader) = socket.split();
 
                 Remote {
-                    reader: RemoteReaders::UDPReader(reader),
-                    writer: RemoteWriters::UDPWriter(writer),
+                    reader: RemoteReaders::UDPReaderLz4(reader),
+                    writer: RemoteWriters::UDPWriterLz4(writer),
                 }
             }
         }
@@ -68,15 +69,18 @@ impl Remote {
         match &mut self.writer {
             RemoteWriters::UDPWriter(udp_writer) => {
                 udp_writer.send((buffer, destination)).await.unwrap()
-            },
-            RemoteWriters::UDPWriterLz4(_udplz4_writer) => {
-                unimplemented!()
+            }
+            RemoteWriters::UDPWriterLz4(udplz4_writer) => {
+                let compressed = compress_prepend_size(&buffer[..]);
+                udplz4_writer
+                    .send((Bytes::from(compressed), destination))
+                    .await
+                    .unwrap()
             }
         }
     }
 
     pub async fn read(&mut self) -> (BytesMut, SocketAddr) {
-
         match &mut self.reader {
             RemoteReaders::UDPReader(udp_reader) => {
                 let outcome = udp_reader.next().await.unwrap();
@@ -85,9 +89,17 @@ impl Remote {
                     Ok(received) => received,
                     Err(e) => panic!("Failed to receive from UDP remote: {}", e),
                 }
-            },
-            RemoteReaders::UDPReaderLz4(_) => {
-                unimplemented!()
+            }
+            RemoteReaders::UDPReaderLz4(udplz4_reader) => {
+                let outcome = udplz4_reader.next().await.unwrap();
+
+                match outcome {
+                    Ok((bytes, address)) => {
+                        let uncompressed = decompress_size_prepended(&bytes[..]).unwrap();
+                        (BytesMut::from(uncompressed.as_slice()), address)
+                    }
+                    Err(e) => panic!("Failed to receive from UDP remote: {}", e),
+                }
             }
         }
     }
