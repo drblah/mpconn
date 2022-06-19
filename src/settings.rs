@@ -33,8 +33,7 @@ pub enum RemoteTypes {
 pub struct SettingsFile {
     pub peer_addr: Ipv4Addr,
     pub peer_port: u16,
-    pub keep_alive: Option<bool>,
-    pub keep_alive_interval: Option<u64>,
+    pub keep_alive_interval: u64,
     pub local: LocalTypes,
     pub remotes: Vec<RemoteTypes>,
 }
