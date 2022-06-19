@@ -60,7 +60,7 @@ async fn keepalive(peer_list: &mut PeerList, remotes: &mut Vec<Remote>) {
             bytes::Bytes::copy_from_slice(&serialized_packet),
             peer,
         )
-            .await;
+        .await;
     }
 }
 
@@ -93,7 +93,6 @@ async fn main() {
 
     let mut maintenance_interval = time::interval(Duration::from_secs(5));
     let mut keepalive_interval = time::interval(Duration::from_secs(settings.keep_alive_interval));
-
 
     loop {
         tokio::select! {
