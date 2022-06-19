@@ -47,9 +47,11 @@ async fn await_remotes_send(remotes: &mut Vec<Remote>, packet: bytes::Bytes, tar
     let _ = futures.collect::<Vec<_>>().await;
 }
 
-async fn maintenance(peer_list: &mut PeerList, remotes: &mut Vec<Remote>) {
+async fn maintenance(peer_list: &mut PeerList) {
     peer_list.prune_stale_peers();
+}
 
+async fn keepalive(peer_list: &mut PeerList, remotes: &mut Vec<Remote>) {
     let serialized_packet = bincode::serialize(&Messages::Keepalive).unwrap();
 
     for peer in peer_list.get_peers() {
@@ -58,7 +60,7 @@ async fn maintenance(peer_list: &mut PeerList, remotes: &mut Vec<Remote>) {
             bytes::Bytes::copy_from_slice(&serialized_packet),
             peer,
         )
-        .await;
+            .await;
     }
 }
 
@@ -90,6 +92,8 @@ async fn main() {
     )]));
 
     let mut maintenance_interval = time::interval(Duration::from_secs(5));
+    let mut keepalive_interval = time::interval(Duration::from_secs(5));
+    
 
     loop {
         tokio::select! {
@@ -147,7 +151,11 @@ async fn main() {
             }
 
             _ = maintenance_interval.tick() => {
-                maintenance(&mut peer_list, &mut remotes).await;
+                maintenance(&mut peer_list).await;
+            }
+
+            _ = keepalive_interval.tick() => {
+                keepalive(&mut peer_list, &mut remotes).await;
             }
 
         }
