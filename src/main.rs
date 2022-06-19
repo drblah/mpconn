@@ -92,8 +92,8 @@ async fn main() {
     )]));
 
     let mut maintenance_interval = time::interval(Duration::from_secs(5));
-    let mut keepalive_interval = time::interval(Duration::from_secs(5));
-    
+    let mut keepalive_interval = time::interval(Duration::from_secs(settings.keep_alive_interval));
+
 
     loop {
         tokio::select! {
