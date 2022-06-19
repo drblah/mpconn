@@ -3,4 +3,4 @@
 set -e
 
 (cd ../../ && cargo build --release)
-cp ../../target/release/mpconn2 ./
+cp ../../target/release/mpconn ./
