@@ -1,4 +1,5 @@
 use crate::settings::RemoteTypes;
+use crate::{Messages, PeerList};
 use bytes::{Bytes, BytesMut};
 use futures::prelude::*;
 use futures::stream::{SplitSink, SplitStream, StreamExt};
@@ -102,6 +103,31 @@ impl Remote {
                 }
             }
         }
+    }
+
+    pub async fn keepalive(&mut self, peer_list: &mut PeerList) {
+        match &mut self.writer {
+            RemoteWriters::UDPWriter(_) => udp_keepalive(self, peer_list).await,
+            RemoteWriters::UDPWriterLz4(_) => udp_keepalive(self, peer_list).await,
+            _ => {}
+        }
+
+        let serialized_packet = bincode::serialize(&Messages::Keepalive).unwrap();
+
+        for peer in peer_list.get_peers() {
+            self.write(bytes::Bytes::copy_from_slice(&serialized_packet), peer)
+                .await
+        }
+    }
+}
+
+async fn udp_keepalive(remote: &mut Remote, peer_list: &mut PeerList) {
+    let serialized_packet = bincode::serialize(&Messages::Keepalive).unwrap();
+
+    for peer in peer_list.get_peers() {
+        remote
+            .write(bytes::Bytes::copy_from_slice(&serialized_packet), peer)
+            .await
     }
 }
 

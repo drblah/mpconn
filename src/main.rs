@@ -52,19 +52,6 @@ async fn maintenance(peer_list: &mut PeerList) {
     peer_list.prune_stale_peers();
 }
 
-async fn keepalive(peer_list: &mut PeerList, remotes: &mut Vec<Remote>) {
-    let serialized_packet = bincode::serialize(&Messages::Keepalive).unwrap();
-
-    for peer in peer_list.get_peers() {
-        await_remotes_send(
-            remotes,
-            bytes::Bytes::copy_from_slice(&serialized_packet),
-            peer,
-        )
-        .await;
-    }
-}
-
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let args = Args::parse();
@@ -152,7 +139,9 @@ async fn main() {
             }
 
             _ = keepalive_interval.tick() => {
-                keepalive(&mut peer_list, &mut remotes).await;
+                for remote in &mut remotes {
+                    remote.keepalive(&mut peer_list).await
+                }
             }
 
         }
