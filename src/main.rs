@@ -1,7 +1,7 @@
 use bytes::BytesMut;
 use futures::future::select_all;
 use futures::{FutureExt, StreamExt};
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::time::Duration;
 
 use crate::messages::Messages;
