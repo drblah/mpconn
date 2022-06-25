@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddr};
 
 #[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
@@ -31,8 +31,7 @@ pub enum RemoteTypes {
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct SettingsFile {
-    pub peer_addr: Ipv4Addr,
-    pub peer_port: u16,
+    pub peers: Vec<SocketAddr>,
     pub keep_alive_interval: u64,
     pub local: LocalTypes,
     pub remotes: Vec<RemoteTypes>,

@@ -1,6 +1,7 @@
 {
-  "peer_addr": "172.16.200.4",
-  "peer_port": 10001,
+  "peers": [
+    "172.16.200.4:10001"
+  ],
   "keep_alive_interval": 10,
   "local": {
     "type": "Layer3",

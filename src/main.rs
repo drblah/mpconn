@@ -87,10 +87,7 @@ async fn main() {
     let mut tx_counter: usize = 0;
     let mut rx_counter: usize = 0;
 
-    let mut peer_list = PeerList::new(Some(vec![SocketAddr::new(
-        IpAddr::V4(settings.peer_addr),
-        settings.peer_port,
-    )]));
+    let mut peer_list = PeerList::new(Some(settings.peers));
 
     let mut maintenance_interval = time::interval(Duration::from_secs(5));
     let mut keepalive_interval = time::interval(Duration::from_secs(settings.keep_alive_interval));
