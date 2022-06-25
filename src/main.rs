@@ -19,8 +19,9 @@ mod remote;
 mod settings;
 
 #[derive(Parser, Debug)]
-#[clap(author, version, about, long_about = None)]
+#[clap(author, version, about)]
 struct Args {
+    /// Path to the configuration file
     #[clap(long)]
     config: String,
 }
