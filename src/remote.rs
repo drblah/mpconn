@@ -111,13 +111,6 @@ impl Remote {
             RemoteWriters::UDPWriterLz4(_) => udp_keepalive(self, peer_list).await,
             _ => {}
         }
-
-        let serialized_packet = bincode::serialize(&Messages::Keepalive).unwrap();
-
-        for peer in peer_list.get_peers() {
-            self.write(bytes::Bytes::copy_from_slice(&serialized_packet), peer)
-                .await
-        }
     }
 }
 
