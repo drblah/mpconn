@@ -97,6 +97,20 @@ ip netns exec client1 \
 ip netns exec client2 \
   ip link set cli_veth2 up
 
+# Disable GRO to prevent wrong TCP and UDP checksums
+ip netns exec client1 \
+  ethtool --offload cli_veth1 rx off
+
+ip netns exec client1 \
+  ethtool --offload cli_veth1 tx off
+
+ip netns exec client2 \
+  ethtool --offload cli_veth2 rx off
+
+ip netns exec client2 \
+  ethtool --offload cli_veth2 tx off
+
+
 # Add br-veth* to the bridge
 ip link set br-veth1 master mptun_bridge
 ip link set br-veth2 master mptun_bridge
