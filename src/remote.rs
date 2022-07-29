@@ -8,8 +8,10 @@ use socket2::{Domain, Socket, Type};
 use std::net::UdpSocket as std_udp;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use tokio::net::UdpSocket;
+use tokio::sync::RwLock;
 use tokio_util::codec::BytesCodec;
 use tokio_util::udp::UdpFramed;
+use crate::messages::Packet;
 
 pub enum RemoteReaders {
     UDPReader(SplitStream<UdpFramed<BytesCodec>>),
@@ -81,13 +83,13 @@ impl Remote {
         }
     }
 
-    pub async fn read(&mut self) -> (BytesMut, SocketAddr) {
+    pub async fn read(&mut self, peer_list: &RwLock<PeerList>) -> Option<Packet> {
         match &mut self.reader {
             RemoteReaders::UDPReader(udp_reader) => {
                 let outcome = udp_reader.next().await.unwrap();
 
                 match outcome {
-                    Ok(received) => received,
+                    Ok((recieved_bytes, addr)) => udp_handle_received(recieved_bytes, addr, peer_list).await,
                     Err(e) => panic!("Failed to receive from UDP remote: {}", e),
                 }
             }
@@ -97,7 +99,8 @@ impl Remote {
                 match outcome {
                     Ok((bytes, address)) => {
                         let uncompressed = decompress_size_prepended(&bytes[..]).unwrap();
-                        (BytesMut::from(uncompressed.as_slice()), address)
+
+                        udp_handle_received(BytesMut::from(uncompressed.as_slice()), address, peer_list).await
                     }
                     Err(e) => panic!("Failed to receive from UDP remote: {}", e),
                 }
@@ -112,6 +115,33 @@ impl Remote {
             _ => {}
         }
     }
+}
+
+async fn udp_handle_received(recieved_bytes: BytesMut, addr: SocketAddr, peer_list: &RwLock<PeerList>) -> Option<Packet> {
+    let deserialized_packet: Option<Packet> = match bincode::deserialize::<Messages>(&recieved_bytes) {
+        Ok(decoded) => {
+            match decoded {
+                Messages::Packet(pkt) => {
+                    Some(pkt)
+                },
+                Messages::Keepalive => {
+                    println!("Received keepalive msg from: {:?}", addr);
+                    let mut peer_list_write_lock = peer_list.write().await;
+
+                    peer_list_write_lock.add_peer(addr);
+                    None
+                }
+            }
+        },
+        Err(err) => {
+            // If we receive garbage, simply throw it away and continue.
+            println!("Unable do deserialize packet. Got error: {}", err);
+            println!("{:?}", recieved_bytes);
+            None
+        }
+    };
+
+    deserialized_packet
 }
 
 async fn udp_keepalive(remote: &mut Remote, peer_list: &mut PeerList) {

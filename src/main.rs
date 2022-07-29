@@ -5,11 +5,12 @@ use std::net::SocketAddr;
 use std::time::Duration;
 use bincode::Options;
 
-use crate::messages::Messages;
+use crate::messages::{Messages, Packet};
 use crate::peer_list::PeerList;
 use crate::remote::Remote;
 use clap::Parser;
 use futures::stream::FuturesUnordered;
+use tokio::sync::RwLock;
 use tokio::time;
 
 mod async_pcap;
@@ -27,11 +28,11 @@ struct Args {
     config: String,
 }
 
-async fn await_remotes_receive(remotes: &mut Vec<Remote>) -> (BytesMut, SocketAddr) {
+async fn await_remotes_receive(remotes: &mut Vec<Remote>, peer_list: &RwLock<PeerList>) -> Option<Packet> {
     let futures = FuturesUnordered::new();
 
     for remote in remotes {
-        futures.push(remote.read().boxed())
+        futures.push(remote.read(peer_list).boxed())
     }
 
     let (item_resolved, _ready_future_index, _remaining_futures) = select_all(futures).await;
@@ -75,7 +76,7 @@ async fn main() {
     let mut tx_counter: usize = 0;
     let mut rx_counter: usize = 0;
 
-    let mut peer_list = PeerList::new(Some(settings.peers));
+    let peer_list = RwLock::new(PeerList::new(Some(settings.peers)));
 
     let mut maintenance_interval = time::interval(Duration::from_secs(5));
     let mut keepalive_interval = time::interval(Duration::from_secs(settings.keep_alive_interval));
@@ -84,40 +85,15 @@ async fn main() {
 
     loop {
         tokio::select! {
-            socket_result = await_remotes_receive(&mut remotes) => {
-                let (recieved_bytes, addr) = socket_result;
-                //println!("Got {} bytes from {} on UDP", recieved_bytes.len() , addr);
-                //println!("{:?}", recieved_bytes);
 
-                let deserialized_packet: messages::Packet = match bincode_config.deserialize::<Messages>(&recieved_bytes) {
-                    Ok(decoded) => {
-                        match decoded {
-                            Messages::Packet(pkt) => {
-                                pkt
-                            },
-                            Messages::Keepalive => {
-                                println!("Received keepalive msg from: {:?}", addr);
-                                peer_list.add_peer(addr);
-                                continue
-                            }
-                        }
-                    },
-                    Err(err) => {
-                        // If we receive garbage, simply throw it away and continue.
-                        println!("Unable do deserialize packet. Got error: {}", err);
-                        println!("{:?}", recieved_bytes);
-                        continue
+            socket_result = await_remotes_receive(&mut remotes, &peer_list) => {
+                if let Some(packet) = socket_result {
+                    if packet.seq > rx_counter {
+                        rx_counter = packet.seq;
+                        let mut output = BytesMut::from(packet.bytes.as_slice());
+                        local.write(&mut output).await;
                     }
-                };
-
-                if deserialized_packet.seq > rx_counter {
-                    rx_counter = deserialized_packet.seq;
-                    let mut output = BytesMut::from(deserialized_packet.bytes.as_slice());
-                    local.write(&mut output).await;
                 }
-
-
-
             }
 
             _tun_result = local.read(&mut tun_buf) => {
@@ -129,7 +105,9 @@ async fn main() {
 
                 let serialized_packet = bincode_config.serialize(&Messages::Packet(packet)).unwrap();
 
-                for peer in peer_list.get_peers() {
+                let peer_list_read_lock = peer_list.read().await;
+
+                for peer in peer_list_read_lock.get_peers() {
                     await_remotes_send(&mut remotes, bytes::Bytes::copy_from_slice(&serialized_packet), peer).await;
                 }
 
@@ -138,12 +116,14 @@ async fn main() {
             }
 
             _ = maintenance_interval.tick() => {
-                maintenance(&mut peer_list).await;
+                let mut peer_list_write_lock = peer_list.write().await;
+                maintenance(&mut peer_list_write_lock).await;
             }
 
             _ = keepalive_interval.tick() => {
+                let mut peer_list_write_lock = peer_list.write().await;
                 for remote in &mut remotes {
-                    remote.keepalive(&mut peer_list).await
+                    remote.keepalive(&mut peer_list_write_lock).await
                 }
             }
 
