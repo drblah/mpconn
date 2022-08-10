@@ -21,7 +21,7 @@ function unzigzag(buffer)
     elseif buffer(0, 1):le_uint() == 252 then
         return buffer(1, 4)
 
-    -- Decode 2**16 <= u < 2**32
+    -- Decode 2**16 <= u < 2**64
         elseif buffer(0, 1):le_uint() == 253 then
             return buffer(1, 8)
     end
