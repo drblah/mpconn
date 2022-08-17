@@ -3,6 +3,7 @@ use futures::future::select_all;
 use futures::{FutureExt, StreamExt};
 use std::net::SocketAddr;
 use std::time::Duration;
+use bincode::Options;
 
 use crate::messages::Messages;
 use crate::peer_list::PeerList;
@@ -79,6 +80,8 @@ async fn main() {
     let mut maintenance_interval = time::interval(Duration::from_secs(5));
     let mut keepalive_interval = time::interval(Duration::from_secs(settings.keep_alive_interval));
 
+    let bincode_config = bincode::options().with_varint_encoding().allow_trailing_bytes();
+
     loop {
         tokio::select! {
             socket_result = await_remotes_receive(&mut remotes) => {
@@ -86,7 +89,7 @@ async fn main() {
                 //println!("Got {} bytes from {} on UDP", recieved_bytes.len() , addr);
                 //println!("{:?}", recieved_bytes);
 
-                let deserialized_packet: messages::Packet = match bincode::deserialize::<Messages>(&recieved_bytes) {
+                let deserialized_packet: messages::Packet = match bincode_config.deserialize::<Messages>(&recieved_bytes) {
                     Ok(decoded) => {
                         match decoded {
                             Messages::Packet(pkt) => {
@@ -124,7 +127,7 @@ async fn main() {
                 };
                 tx_counter += 1;
 
-                let serialized_packet = bincode::serialize(&Messages::Packet(packet)).unwrap();
+                let serialized_packet = bincode_config.serialize(&Messages::Packet(packet)).unwrap();
 
                 for peer in peer_list.get_peers() {
                     await_remotes_send(&mut remotes, bytes::Bytes::copy_from_slice(&serialized_packet), peer).await;
