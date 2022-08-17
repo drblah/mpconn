@@ -12,6 +12,7 @@ use tokio::sync::RwLock;
 use tokio_util::codec::BytesCodec;
 use tokio_util::udp::UdpFramed;
 use crate::messages::Packet;
+use bincode::Options;
 
 pub enum RemoteReaders {
     UDPReader(SplitStream<UdpFramed<BytesCodec>>),
@@ -118,7 +119,9 @@ impl Remote {
 }
 
 async fn udp_handle_received(recieved_bytes: BytesMut, addr: SocketAddr, peer_list: &RwLock<PeerList>) -> Option<Packet> {
-    let deserialized_packet: Option<Packet> = match bincode::deserialize::<Messages>(&recieved_bytes) {
+    let bincode_config = bincode::options().with_varint_encoding().allow_trailing_bytes();
+
+    let deserialized_packet: Option<Packet> = match bincode_config.deserialize::<Messages>(&recieved_bytes) {
         Ok(decoded) => {
             match decoded {
                 Messages::Packet(pkt) => {
@@ -145,7 +148,9 @@ async fn udp_handle_received(recieved_bytes: BytesMut, addr: SocketAddr, peer_li
 }
 
 async fn udp_keepalive(remote: &mut Remote, peer_list: &mut PeerList) {
-    let serialized_packet = bincode::serialize(&Messages::Keepalive).unwrap();
+    let bincode_config = bincode::options().with_varint_encoding().allow_trailing_bytes();
+
+    let serialized_packet = bincode_config.serialize(&Messages::Keepalive).unwrap();
 
     for peer in peer_list.get_peers() {
         remote
