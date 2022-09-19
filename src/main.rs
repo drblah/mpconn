@@ -26,16 +26,26 @@ struct Args {
     /// Path to the configuration file
     #[clap(long)]
     config: String,
+
+    #[clap(long)]
+    debug: bool
 }
 
-async fn await_remotes_receive(remotes: &mut Vec<Remote>, peer_list: &RwLock<PeerList>) -> Option<Packet> {
+async fn await_remotes_receive(remotes: &mut Vec<Remote>, peer_list: &RwLock<PeerList>, debug_flag: bool) -> Option<Packet> {
     let futures = FuturesUnordered::new();
+    let mut interfaces = Vec::new();
 
     for remote in remotes {
-        futures.push(remote.read(peer_list).boxed())
+        interfaces.push(remote.get_interface());
+
+        futures.push(remote.read(peer_list).boxed());
     }
 
-    let (item_resolved, _ready_future_index, _remaining_futures) = select_all(futures).await;
+    let (item_resolved, ready_future_index, _remaining_futures) = select_all(futures).await;
+
+    if debug_flag {
+        println!("Received packet on: {}", interfaces[ready_future_index]);
+    }
 
     item_resolved
 }
@@ -57,6 +67,10 @@ async fn maintenance(peer_list: &mut PeerList) {
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let args = Args::parse();
+
+    if args.debug {
+        println!("Debug mode enabled!")
+    }
 
     let settings: settings::SettingsFile =
         serde_json::from_str(std::fs::read_to_string(args.config).unwrap().as_str()).unwrap();
@@ -86,7 +100,7 @@ async fn main() {
     loop {
         tokio::select! {
 
-            socket_result = await_remotes_receive(&mut remotes, &peer_list) => {
+            socket_result = await_remotes_receive(&mut remotes, &peer_list, args.debug) => {
                 if let Some(packet) = socket_result {
                     if packet.seq > rx_counter {
                         rx_counter = packet.seq;

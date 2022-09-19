@@ -1,3 +1,5 @@
+use std::fmt;
+use std::fmt::Formatter;
 use crate::settings::RemoteTypes;
 use crate::{Messages, PeerList};
 use bytes::{Bytes, BytesMut};
@@ -27,6 +29,7 @@ pub enum RemoteWriters {
 pub struct Remote {
     pub reader: RemoteReaders,
     pub writer: RemoteWriters,
+    interface: String
 }
 
 impl Remote {
@@ -47,6 +50,7 @@ impl Remote {
                 Remote {
                     reader: RemoteReaders::UDPReader(reader),
                     writer: RemoteWriters::UDPWriter(writer),
+                    interface: iface
                 }
             }
             RemoteTypes::UDPLz4 {
@@ -64,6 +68,7 @@ impl Remote {
                 Remote {
                     reader: RemoteReaders::UDPReaderLz4(reader),
                     writer: RemoteWriters::UDPWriterLz4(writer),
+                    interface: iface
                 }
             }
         }
@@ -115,6 +120,10 @@ impl Remote {
             RemoteWriters::UDPWriterLz4(_) => udp_keepalive(self, peer_list).await,
             _ => {}
         }
+    }
+
+    pub fn get_interface(&self) -> String {
+        self.interface.clone()
     }
 }
 
