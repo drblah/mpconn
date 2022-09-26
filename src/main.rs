@@ -1,8 +1,10 @@
+#[macro_use] extern crate log;
+
 use bytes::BytesMut;
 use futures::future::select_all;
 use futures::{FutureExt, StreamExt};
 use std::net::SocketAddr;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use bincode::Options;
 
 use crate::messages::{Messages, Packet};
@@ -12,6 +14,12 @@ use clap::Parser;
 use futures::stream::FuturesUnordered;
 use tokio::sync::RwLock;
 use tokio::time;
+use tokio::io::{AsyncWriteExt, BufWriter};
+use tokio::fs::File as tokioFile;
+
+use simplelog::*;
+use std::fs::File;
+use std::io::Write;
 
 mod async_pcap;
 mod local;
@@ -31,7 +39,7 @@ struct Args {
     debug: bool
 }
 
-async fn await_remotes_receive(remotes: &mut Vec<Remote>, peer_list: &RwLock<PeerList>, debug_flag: bool) -> Option<Packet> {
+async fn await_remotes_receive(remotes: &mut Vec<Remote>, peer_list: &RwLock<PeerList>, debug_flag: bool) -> (Option<Packet>, String) {
     let futures = FuturesUnordered::new();
     let mut interfaces = Vec::new();
 
@@ -43,11 +51,7 @@ async fn await_remotes_receive(remotes: &mut Vec<Remote>, peer_list: &RwLock<Pee
 
     let (item_resolved, ready_future_index, _remaining_futures) = select_all(futures).await;
 
-    if debug_flag {
-        println!("Received packet on: {}", interfaces[ready_future_index]);
-    }
-
-    item_resolved
+    (item_resolved, interfaces[ready_future_index].clone())
 }
 
 async fn await_remotes_send(remotes: &mut Vec<Remote>, packet: bytes::Bytes, target: SocketAddr) {
@@ -68,14 +72,35 @@ async fn maintenance(peer_list: &mut PeerList) {
 async fn main() {
     let args = Args::parse();
 
+    let mut interface_logger: Option<BufWriter<tokioFile>> = Option::None;
+
     if args.debug {
-        println!("Debug mode enabled!")
+        CombinedLogger::init(
+            vec![
+                TermLogger::new(LevelFilter::Debug, Config::default(), TerminalMode::Mixed, ColorChoice::Auto),
+                WriteLogger::new(LevelFilter::Debug, Config::default(), File::create("mpconn_debug.log").unwrap()),
+            ]
+        ).unwrap();
+
+        interface_logger = Some(BufWriter::new(tokioFile::create("interfaces.log").await.unwrap()));
+        if let Some(if_log) = &mut interface_logger {
+            if_log.write_all("ts,pkt_idx,inface\n".as_ref()).await.unwrap();
+        }
+
+        info!("Debug mode enabled!");
+    } else {
+        CombinedLogger::init(
+            vec![
+                TermLogger::new(LevelFilter::Warn, Config::default(), TerminalMode::Mixed, ColorChoice::Auto),
+                WriteLogger::new(LevelFilter::Info, Config::default(), File::create("mpconn_normal.log").unwrap()),
+            ]
+        ).unwrap();
     }
 
     let settings: settings::SettingsFile =
         serde_json::from_str(std::fs::read_to_string(args.config).unwrap().as_str()).unwrap();
 
-    println!("Using config: {:?}", settings);
+    info!("Using config: {:?}", settings);
 
     let mut remotes: Vec<Remote> = Vec::new();
 
@@ -100,9 +125,19 @@ async fn main() {
     loop {
         tokio::select! {
 
-            socket_result = await_remotes_receive(&mut remotes, &peer_list, args.debug) => {
+            (socket_result, receiver_interface) = await_remotes_receive(&mut remotes, &peer_list, args.debug) => {
                 if let Some(packet) = socket_result {
                     if packet.seq > rx_counter {
+                        if args.debug {
+                            if let Some(if_log) = &mut interface_logger {
+                                let time_stamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos();
+                                let log_string = format!("{},{},{}\n", time_stamp, packet.seq, receiver_interface);
+                                if_log.write_all( log_string.as_ref() ).await.unwrap();
+                            }
+
+
+                        }
+
                         rx_counter = packet.seq;
                         let mut output = BytesMut::from(packet.bytes.as_slice());
                         local.write(&mut output).await;
@@ -132,6 +167,13 @@ async fn main() {
             _ = maintenance_interval.tick() => {
                 let mut peer_list_write_lock = peer_list.write().await;
                 maintenance(&mut peer_list_write_lock).await;
+
+                // Flush interface_log if it is enabled
+                if args.debug {
+                    if let Some(if_log) = &mut interface_logger {
+                        if_log.flush().await.unwrap();
+                    }
+                }
             }
 
             _ = keepalive_interval.tick() => {
