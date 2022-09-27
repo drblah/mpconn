@@ -1,5 +1,3 @@
-use std::fmt;
-use std::fmt::Formatter;
 use crate::settings::RemoteTypes;
 use crate::{Messages, PeerList};
 use bytes::{Bytes, BytesMut};
@@ -86,8 +84,6 @@ impl Remote {
                         }
                     }
                 }
-
-                //udp_writer.send((buffer, destination)).await.unwrap()
             }
             RemoteWriters::UDPWriterLz4(udplz4_writer) => {
                 let compressed = compress_prepend_size(&buffer[..]);
@@ -127,8 +123,7 @@ impl Remote {
     pub async fn keepalive(&mut self, peer_list: &mut PeerList) {
         match &mut self.writer {
             RemoteWriters::UDPWriter(_) => udp_keepalive(self, peer_list).await,
-            RemoteWriters::UDPWriterLz4(_) => udp_keepalive(self, peer_list).await,
-            _ => {}
+            RemoteWriters::UDPWriterLz4(_) => udp_keepalive(self, peer_list).await
         }
     }
 

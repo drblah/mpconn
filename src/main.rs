@@ -20,7 +20,6 @@ use tokio::fs::File as tokioFile;
 
 use simplelog::*;
 use std::fs::File;
-use std::io::Write;
 
 mod async_pcap;
 mod local;
@@ -40,7 +39,7 @@ struct Args {
     debug: bool
 }
 
-async fn await_remotes_receive(remotes: &mut Vec<Remote>, peer_list: &RwLock<PeerList>, debug_flag: bool) -> (Option<Packet>, String) {
+async fn await_remotes_receive(remotes: &mut Vec<Remote>, peer_list: &RwLock<PeerList>) -> (Option<Packet>, String) {
     let futures = FuturesUnordered::new();
     let mut interfaces = Vec::new();
 
@@ -126,7 +125,7 @@ async fn main() {
     loop {
         tokio::select! {
 
-            (socket_result, receiver_interface) = await_remotes_receive(&mut remotes, &peer_list, args.debug) => {
+            (socket_result, receiver_interface) = await_remotes_receive(&mut remotes, &peer_list) => {
                 if let Some(packet) = socket_result {
                     if packet.seq > rx_counter {
                         if args.debug {
