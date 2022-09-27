@@ -77,7 +77,17 @@ impl Remote {
     pub async fn write(&mut self, buffer: Bytes, destination: SocketAddr) {
         match &mut self.writer {
             RemoteWriters::UDPWriter(udp_writer) => {
-                udp_writer.send((buffer, destination)).await.unwrap()
+                match udp_writer.send((buffer, destination)).await {
+                    Ok(_) => {},
+                    Err(e) => {
+                        match e.kind() {
+                            std::io::ErrorKind::NetworkUnreachable => println!("{} Network Unreachable", self.interface),
+                            _ => panic!("{} Encountered unhandled problem when sending: {:?}", self.interface, e)
+                        }
+                    }
+                }
+
+                //udp_writer.send((buffer, destination)).await.unwrap()
             }
             RemoteWriters::UDPWriterLz4(udplz4_writer) => {
                 let compressed = compress_prepend_size(&buffer[..]);
