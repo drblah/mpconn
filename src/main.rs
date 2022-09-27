@@ -32,10 +32,10 @@ mod settings;
 #[clap(author, version, about)]
 struct Args {
     /// Path to the configuration file
-    #[clap(long)]
+    #[clap(long, action = clap::ArgAction::Set)]
     config: String,
 
-    #[clap(long)]
+    #[clap(long, action = clap::ArgAction::SetTrue)]
     debug: bool
 }
 
