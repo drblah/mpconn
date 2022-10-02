@@ -1,5 +1,7 @@
 #![feature(io_error_more)]
+#![feature(map_first_last)]
 #[macro_use] extern crate log;
+extern crate core;
 
 use bytes::BytesMut;
 use futures::future::select_all;
@@ -20,6 +22,7 @@ use tokio::fs::File as tokioFile;
 
 use simplelog::*;
 use std::fs::File;
+use crate::sequencer::Sequencer;
 
 mod async_pcap;
 mod local;
@@ -27,6 +30,7 @@ mod messages;
 mod peer_list;
 mod remote;
 mod settings;
+mod sequencer;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
@@ -116,9 +120,11 @@ async fn main() {
     let mut rx_counter: usize = 0;
 
     let peer_list = RwLock::new(PeerList::new(Some(settings.peers)));
+    let mut sequencer = Sequencer::new(Duration::from_millis(1));
 
     let mut maintenance_interval = time::interval(Duration::from_secs(5));
     let mut keepalive_interval = time::interval(Duration::from_secs(settings.keep_alive_interval));
+    let mut packet_deadline = time::interval(Duration::from_millis(5));
 
     let bincode_config = bincode::options().with_varint_encoding().allow_trailing_bytes();
 
@@ -127,6 +133,7 @@ async fn main() {
 
             (socket_result, receiver_interface) = await_remotes_receive(&mut remotes, &peer_list) => {
                 if let Some(packet) = socket_result {
+                    /*
                     if packet.seq > rx_counter {
                         if args.debug {
                             if let Some(if_log) = &mut interface_logger {
@@ -142,6 +149,20 @@ async fn main() {
                         let mut output = BytesMut::from(packet.bytes.as_slice());
                         local.write(&mut output).await;
                     }
+
+                     */
+
+                    sequencer.insert_packet(packet);
+                    
+                    while sequencer.have_next_packet() {
+
+                        if let Some(next_packet) = sequencer.get_next_packet() {
+                            let mut output = BytesMut::from(next_packet.bytes.as_slice());
+                            local.write(&mut output).await;
+                        }
+                    }
+
+
                 }
             }
 
@@ -174,6 +195,8 @@ async fn main() {
                         if_log.flush().await.unwrap();
                     }
                 }
+
+                println!("Sequencer packet queue length: {}", sequencer.get_queue_length());
             }
 
             _ = keepalive_interval.tick() => {
@@ -181,6 +204,10 @@ async fn main() {
                 for remote in &mut remotes {
                     remote.keepalive(&mut peer_list_write_lock).await
                 }
+            }
+
+            _ = packet_deadline.tick() => {
+                sequencer.prune_outdated()
             }
 
         }

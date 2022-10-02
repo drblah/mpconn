@@ -37,12 +37,14 @@ impl Sequencer {
     }
 
     pub fn insert_packet(&mut self, pkt: Packet) {
-        self.packet_queue.entry(pkt.seq)
-            .or_insert(TimestampedPacket{packet: pkt, timestamp: SystemTime::now()});
+        if pkt.seq >= self.next_seq {
+            self.packet_queue.entry(pkt.seq)
+                .or_insert(TimestampedPacket{packet: pkt, timestamp: SystemTime::now()});
 
-        if self.packet_queue.len() == 1 {
-            let only_packet = self.packet_queue.first_entry().unwrap();
-            self.next_seq = *only_packet.key();
+            if self.packet_queue.len() == 1 {
+                let only_packet = self.packet_queue.first_entry().unwrap();
+                self.next_seq = *only_packet.key();
+            }
         }
     }
 
@@ -64,6 +66,19 @@ impl Sequencer {
             //println!("About to update next seq during pruning: {:?}", self.next_seq);
             self.next_seq = *pkt.key();
             //println!("New next seq: {:?}", self.next_seq);
+        }
+    }
+
+    pub fn get_queue_length(&self) -> usize {
+        self.packet_queue.len()
+    }
+
+    pub fn have_next_packet(&mut self) -> bool {
+        match self.packet_queue.first_entry() {
+            Some(pkt) => {
+                *pkt.key() == self.next_seq
+            }
+            None => false
         }
     }
 }
