@@ -124,7 +124,7 @@ async fn main() {
 
     let mut maintenance_interval = time::interval(Duration::from_secs(5));
     let mut keepalive_interval = time::interval(Duration::from_secs(settings.keep_alive_interval));
-    let mut packet_deadline = time::interval(Duration::from_millis(5));
+    let mut packet_deadline = time::interval(Duration::from_millis(100));
 
     let bincode_config = bincode::options().with_varint_encoding().allow_trailing_bytes();
 
@@ -152,8 +152,10 @@ async fn main() {
 
                      */
 
+                    println!("Got seq {} in {}", packet.seq, receiver_interface);
+
                     sequencer.insert_packet(packet);
-                    
+
                     while sequencer.have_next_packet() {
 
                         if let Some(next_packet) = sequencer.get_next_packet() {

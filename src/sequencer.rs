@@ -45,6 +45,8 @@ impl Sequencer {
                 let only_packet = self.packet_queue.first_entry().unwrap();
                 self.next_seq = *only_packet.key();
             }
+        } else {
+            println!("Sequencer: Not inserting seq id: {}, because self.next_seq is: {}", pkt.seq, self.next_seq)
         }
     }
 
