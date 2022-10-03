@@ -7,7 +7,7 @@ use bytes::BytesMut;
 use futures::future::select_all;
 use futures::{FutureExt, StreamExt};
 use std::net::SocketAddr;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration};
 use bincode::Options;
 
 use crate::messages::{Messages, Packet};
@@ -117,7 +117,6 @@ async fn main() {
     let mut tun_buf = BytesMut::with_capacity(65535);
 
     let mut tx_counter: usize = 0;
-    let mut rx_counter: usize = 0;
 
     let peer_list = RwLock::new(PeerList::new(Some(settings.peers)));
     let mut sequencer = Sequencer::new(Duration::from_millis(3));

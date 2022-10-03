@@ -1,19 +1,13 @@
 use std::collections::BTreeMap;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration};
 use tokio::time;
 use crate::Packet;
 
 #[derive(Debug)]
-pub struct TimestampedPacket {
-    packet: Packet,
-    timestamp: SystemTime
-}
-
-#[derive(Debug)]
 pub struct Sequencer {
-    packet_queue: BTreeMap<usize, TimestampedPacket>,
+    packet_queue: BTreeMap<usize, Packet>,
     pub next_seq: usize,
-    deadline_ticker: time::Interval
+    deadline_ticker: time::Interval,
 }
 
 impl Sequencer {
@@ -29,9 +23,9 @@ impl Sequencer {
         if let Some(entry) = self.packet_queue.first_entry() {
             if *entry.key() == self.next_seq {
                 self.next_seq += 1;
-                let ts_pkt = self.packet_queue.pop_first().unwrap().1;
+                let pkt = self.packet_queue.pop_first().unwrap().1;
                 self.deadline_ticker.reset();
-                return Some(ts_pkt.packet)
+                return Some(pkt)
             }
         }
 
@@ -41,7 +35,7 @@ impl Sequencer {
     pub fn insert_packet(&mut self, pkt: Packet) {
         if pkt.seq >= self.next_seq {
             self.packet_queue.entry(pkt.seq)
-                .or_insert(TimestampedPacket { packet: pkt, timestamp: SystemTime::now() });
+                .or_insert(pkt);
 
             //if self.packet_queue.len() == 1 {
             //    let only_packet = self.packet_queue.first_entry().unwrap();
