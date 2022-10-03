@@ -120,11 +120,10 @@ async fn main() {
     let mut rx_counter: usize = 0;
 
     let peer_list = RwLock::new(PeerList::new(Some(settings.peers)));
-    let mut sequencer = Sequencer::new(Duration::from_millis(1));
+    let mut sequencer = Sequencer::new(Duration::from_millis(3));
 
     let mut maintenance_interval = time::interval(Duration::from_secs(5));
     let mut keepalive_interval = time::interval(Duration::from_secs(settings.keep_alive_interval));
-    let mut packet_deadline = time::interval(Duration::from_millis(100));
 
     let bincode_config = bincode::options().with_varint_encoding().allow_trailing_bytes();
 
@@ -152,8 +151,7 @@ async fn main() {
 
                      */
 
-                    println!("Got seq {} in {}", packet.seq, receiver_interface);
-
+                    //println!("Got seq {} in {}", packet.seq, receiver_interface);
                     sequencer.insert_packet(packet);
 
                     while sequencer.have_next_packet() {
@@ -208,8 +206,14 @@ async fn main() {
                 }
             }
 
-            _ = packet_deadline.tick() => {
-                sequencer.prune_outdated()
+            _ = sequencer.tick() => {
+                    while sequencer.have_next_packet() {
+
+                        if let Some(next_packet) = sequencer.get_next_packet() {
+                            let mut output = BytesMut::from(next_packet.bytes.as_slice());
+                            local.write(&mut output).await;
+                        }
+                    }
             }
 
         }

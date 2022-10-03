@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::time::{Duration, SystemTime};
+use tokio::time;
 use crate::Packet;
 
 #[derive(Debug)]
@@ -12,7 +13,7 @@ pub struct TimestampedPacket {
 pub struct Sequencer {
     packet_queue: BTreeMap<usize, TimestampedPacket>,
     pub next_seq: usize,
-    deadline: Duration
+    deadline_ticker: time::Interval
 }
 
 impl Sequencer {
@@ -20,7 +21,7 @@ impl Sequencer {
         Sequencer{
             packet_queue: BTreeMap::new(),
             next_seq: 0,
-            deadline
+            deadline_ticker: time::interval(deadline)
         }
     }
 
@@ -29,6 +30,7 @@ impl Sequencer {
             if *entry.key() == self.next_seq {
                 self.next_seq += 1;
                 let ts_pkt = self.packet_queue.pop_first().unwrap().1;
+                self.deadline_ticker.reset();
                 return Some(ts_pkt.packet)
             }
         }
@@ -39,35 +41,22 @@ impl Sequencer {
     pub fn insert_packet(&mut self, pkt: Packet) {
         if pkt.seq >= self.next_seq {
             self.packet_queue.entry(pkt.seq)
-                .or_insert(TimestampedPacket{packet: pkt, timestamp: SystemTime::now()});
+                .or_insert(TimestampedPacket { packet: pkt, timestamp: SystemTime::now() });
 
-            if self.packet_queue.len() == 1 {
-                let only_packet = self.packet_queue.first_entry().unwrap();
-                self.next_seq = *only_packet.key();
-            }
-        } else {
-            println!("Sequencer: Not inserting seq id: {}, because self.next_seq is: {}", pkt.seq, self.next_seq)
+            //if self.packet_queue.len() == 1 {
+            //    let only_packet = self.packet_queue.first_entry().unwrap();
+            //    self.next_seq = *only_packet.key();
+            //}
         }
     }
 
-    pub fn prune_outdated(&mut self) {
-        let now = SystemTime::now();
+    pub async fn tick(&mut self) {
+        self.deadline_ticker.tick().await;
 
-        //println!("Beginning prune. packet queue before prune: {:?}", self.packet_queue);
 
-        self.packet_queue.retain(|_, ts_pkt| {
-            now.duration_since(ts_pkt.timestamp)
-                .unwrap()
-                .lt(&self.deadline)
-        });
-
-        //println!("After prune: {:?}", self.packet_queue);
-
-        // Update packet sequence counter to current lowest number
-        if let Some(pkt) = self.packet_queue.first_entry() {
-            //println!("About to update next seq during pruning: {:?}", self.next_seq);
-            self.next_seq = *pkt.key();
-            //println!("New next seq: {:?}", self.next_seq);
+        if !self.packet_queue.is_empty() {
+            self.next_seq = *self.packet_queue.first_entry().unwrap().key();
+            //println!("Deadline reached, have set new next_seq: {}", self.next_seq);
         }
     }
 
@@ -126,6 +115,46 @@ mod tests {
     }
 
     #[test]
+    fn unordered_insert_duplicates() {
+        let mut sequencer = Sequencer::new(Duration::from_millis(1));
+        let packets = vec![
+            Packet {
+                seq: 0,
+                bytes: Vec::new(),
+            },
+            Packet {
+                seq: 3,
+                bytes: Vec::new(),
+            },
+            Packet {
+                seq: 3,
+                bytes: Vec::new(),
+            },
+            Packet {
+                seq: 1,
+                bytes: Vec::new(),
+            },
+            Packet {
+                seq: 2,
+                bytes: Vec::new(),
+            },
+        ];
+        let expected = [0, 1, 2, 3];
+
+        for packet in packets {
+            sequencer.insert_packet(packet)
+        }
+
+        for expected_seq in expected {
+            let pkt = sequencer.get_next_packet().unwrap();
+
+            assert_eq!(pkt.seq, expected_seq)
+        }
+
+        assert_eq!(sequencer.get_queue_length(), 0);
+    }
+    /*
+    #[test]
     fn unordered_sequence_hole_insert() {
         let mut sequencer = Sequencer::new(Duration::from_millis(100));
         let packets = vec![
@@ -169,4 +198,6 @@ mod tests {
             }
         }
     }
+
+     */
 }
