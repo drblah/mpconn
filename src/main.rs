@@ -7,7 +7,7 @@ use bytes::BytesMut;
 use futures::future::select_all;
 use futures::{FutureExt, StreamExt};
 use std::net::SocketAddr;
-use std::time::{Duration};
+use std::time::{Duration, SystemTime};
 use bincode::Options;
 
 use crate::messages::{Messages, Packet};
@@ -131,26 +131,14 @@ async fn main() {
 
             (socket_result, receiver_interface) = await_remotes_receive(&mut remotes, &peer_list) => {
                 if let Some(packet) = socket_result {
-                    /*
-                    if packet.seq > rx_counter {
-                        if args.debug {
-                            if let Some(if_log) = &mut interface_logger {
-                                let time_stamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos();
-                                let log_string = format!("{},{},{}\n", time_stamp, packet.seq, receiver_interface);
-                                if_log.write_all( log_string.as_ref() ).await.unwrap();
-                            }
-
-
+                    if packet.seq >= sequencer.next_seq && args.debug {
+                        if let Some(if_log) = &mut interface_logger {
+                            let time_stamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos();
+                            let log_string = format!("{},{},{}\n", time_stamp, packet.seq, receiver_interface);
+                            if_log.write_all( log_string.as_ref() ).await.unwrap();
                         }
-
-                        rx_counter = packet.seq;
-                        let mut output = BytesMut::from(packet.bytes.as_slice());
-                        local.write(&mut output).await;
                     }
 
-                     */
-
-                    //println!("Got seq {} in {}", packet.seq, receiver_interface);
                     sequencer.insert_packet(packet);
 
                     while sequencer.have_next_packet() {
@@ -160,8 +148,6 @@ async fn main() {
                             local.write(&mut output).await;
                         }
                     }
-
-
                 }
             }
 
