@@ -36,11 +36,6 @@ impl Sequencer {
         if pkt.seq >= self.next_seq {
             self.packet_queue.entry(pkt.seq)
                 .or_insert(pkt);
-
-            //if self.packet_queue.len() == 1 {
-            //    let only_packet = self.packet_queue.first_entry().unwrap();
-            //    self.next_seq = *only_packet.key();
-            //}
         }
     }
 
@@ -50,7 +45,6 @@ impl Sequencer {
 
         if !self.packet_queue.is_empty() {
             self.next_seq = *self.packet_queue.first_entry().unwrap().key();
-            //println!("Deadline reached, have set new next_seq: {}", self.next_seq);
         }
     }
 
