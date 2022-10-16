@@ -72,6 +72,12 @@ async fn maintenance(peer_list: &mut PeerList) {
     peer_list.prune_stale_peers();
 }
 
+async fn write_interface_log(if_log: &mut BufWriter<tokioFile>, receiver_interface: &str, sequence_number: usize) {
+    let time_stamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos();
+    let log_string = format!("{},{},{}\n", time_stamp, sequence_number, receiver_interface);
+    if_log.write_all(log_string.as_ref()).await.unwrap();
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let args = Args::parse();
@@ -117,6 +123,7 @@ async fn main() {
     let mut tun_buf = BytesMut::with_capacity(65535);
 
     let mut tx_counter: usize = 0;
+    let mut rx_counter: usize = 0;
 
     let peer_list = RwLock::new(PeerList::new(Some(settings.peers)));
     let mut sequencer = Sequencer::new(Duration::from_millis(3));
@@ -130,25 +137,48 @@ async fn main() {
         tokio::select! {
 
             (socket_result, receiver_interface) = await_remotes_receive(&mut remotes, &peer_list) => {
-                if let Some(packet) = socket_result {
-                    if packet.seq >= sequencer.next_seq && args.debug {
-                        if let Some(if_log) = &mut interface_logger {
-                            let time_stamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos();
-                            let log_string = format!("{},{},{}\n", time_stamp, packet.seq, receiver_interface);
-                            if_log.write_all( log_string.as_ref() ).await.unwrap();
+
+                match settings.reorder {
+                    true => {
+                        if let Some(packet) = socket_result {
+                            if packet.seq >= sequencer.next_seq && args.debug {
+                                if let Some(if_log) = &mut interface_logger {
+                                    write_interface_log(if_log, &receiver_interface, packet.seq).await;
+                                }
+                            }
+
+                            sequencer.insert_packet(packet);
+
+                            while sequencer.have_next_packet() {
+
+                                if let Some(next_packet) = sequencer.get_next_packet() {
+                                    let mut output = BytesMut::from(next_packet.bytes.as_slice());
+                                    local.write(&mut output).await;
+                                }
+                            }
                         }
                     }
 
-                    sequencer.insert_packet(packet);
+                    false => {
+                        if let Some(packet) = socket_result {
+                            if packet.seq > rx_counter {
+                                if args.debug {
+                                    if let Some(if_log) = &mut interface_logger {
+                                        write_interface_log(if_log, &receiver_interface, packet.seq).await;
+                                    }
 
-                    while sequencer.have_next_packet() {
 
-                        if let Some(next_packet) = sequencer.get_next_packet() {
-                            let mut output = BytesMut::from(next_packet.bytes.as_slice());
-                            local.write(&mut output).await;
+                                }
+
+                                rx_counter = packet.seq;
+                                let mut output = BytesMut::from(packet.bytes.as_slice());
+                                local.write(&mut output).await;
+                            }
                         }
                     }
                 }
+
+
             }
 
             _tun_result = local.read(&mut tun_buf) => {
