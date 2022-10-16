@@ -3,6 +3,7 @@
     "172.16.200.4:10001"
   ],
   "keep_alive_interval": 10,
+  "reorder": true,
   "local": {
     "type": "Layer3",
     "tun_ip": "10.12.0.1",
