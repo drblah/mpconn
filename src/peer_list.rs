@@ -109,7 +109,7 @@ impl PeerList {
 
             let pruned_size = peer.connections.len();
             if pruned_size < old_size {
-                println!("Pruned {} stale connections from {}", old_size - pruned_size, peer_id)
+                println!("Pruned {} stale connections from peer {}", old_size - pruned_size, peer_id)
             }
         }
     }
