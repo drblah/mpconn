@@ -3,6 +3,7 @@
   ],
   "keep_alive_interval": 10,
   "reorder": true,
+  "peer_id": 1337,
   "local": {
     "type": "Layer3",
     "tun_ip": "10.12.0.2"
