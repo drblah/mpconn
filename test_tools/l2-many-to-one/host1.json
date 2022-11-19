@@ -4,6 +4,7 @@
   ],
   "keep_alive": true,
   "keep_alive_interval": 10,
+  "reorder": true,
   "local": {
     "type": "Layer2",
     "network_interface": "gw_veth1"

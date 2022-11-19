@@ -55,7 +55,7 @@ impl PeerList {
         }
     }
 
-    pub fn get_peers(&mut self) -> Vec<SocketAddr> {
+    pub fn get_peers(&self) -> Vec<SocketAddr> {
         self.peers
             .values()
             .cloned()

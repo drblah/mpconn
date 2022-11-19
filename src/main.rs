@@ -1,16 +1,28 @@
+#![feature(io_error_more)]
+#![feature(map_first_last)]
+#[macro_use] extern crate log;
+extern crate core;
+
 use bytes::BytesMut;
 use futures::future::select_all;
 use futures::{FutureExt, StreamExt};
 use std::net::SocketAddr;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use bincode::Options;
 
-use crate::messages::Messages;
+use crate::messages::{Messages, Packet};
 use crate::peer_list::PeerList;
 use crate::remote::Remote;
 use clap::Parser;
 use futures::stream::FuturesUnordered;
+use tokio::sync::RwLock;
 use tokio::time;
+use tokio::io::{AsyncWriteExt, BufWriter};
+use tokio::fs::File as tokioFile;
+
+use simplelog::*;
+use std::fs::File;
+use crate::sequencer::Sequencer;
 
 mod async_pcap;
 mod local;
@@ -18,25 +30,32 @@ mod messages;
 mod peer_list;
 mod remote;
 mod settings;
+mod sequencer;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
 struct Args {
     /// Path to the configuration file
-    #[clap(long)]
+    #[clap(long, action = clap::ArgAction::Set)]
     config: String,
+
+    #[clap(long, action = clap::ArgAction::SetTrue)]
+    debug: bool
 }
 
-async fn await_remotes_receive(remotes: &mut Vec<Remote>) -> (BytesMut, SocketAddr) {
+async fn await_remotes_receive(remotes: &mut Vec<Remote>, peer_list: &RwLock<PeerList>) -> (Option<Packet>, String) {
     let futures = FuturesUnordered::new();
+    let mut interfaces = Vec::new();
 
     for remote in remotes {
-        futures.push(remote.read().boxed())
+        interfaces.push(remote.get_interface());
+
+        futures.push(remote.read(peer_list).boxed());
     }
 
-    let (item_resolved, _ready_future_index, _remaining_futures) = select_all(futures).await;
+    let (item_resolved, ready_future_index, _remaining_futures) = select_all(futures).await;
 
-    item_resolved
+    (item_resolved, interfaces[ready_future_index].clone())
 }
 
 async fn await_remotes_send(remotes: &mut Vec<Remote>, packet: bytes::Bytes, target: SocketAddr) {
@@ -53,14 +72,45 @@ async fn maintenance(peer_list: &mut PeerList) {
     peer_list.prune_stale_peers();
 }
 
+async fn write_interface_log(if_log: &mut BufWriter<tokioFile>, receiver_interface: &str, sequence_number: usize) {
+    let time_stamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos();
+    let log_string = format!("{},{},{}\n", time_stamp, sequence_number, receiver_interface);
+    if_log.write_all(log_string.as_ref()).await.unwrap();
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let args = Args::parse();
 
+    let mut interface_logger: Option<BufWriter<tokioFile>> = Option::None;
+
+    if args.debug {
+        CombinedLogger::init(
+            vec![
+                TermLogger::new(LevelFilter::Debug, Config::default(), TerminalMode::Mixed, ColorChoice::Auto),
+                WriteLogger::new(LevelFilter::Debug, Config::default(), File::create("mpconn_debug.log").unwrap()),
+            ]
+        ).unwrap();
+
+        interface_logger = Some(BufWriter::new(tokioFile::create("interfaces.log").await.unwrap()));
+        if let Some(if_log) = &mut interface_logger {
+            if_log.write_all("ts,pkt_idx,inface\n".as_ref()).await.unwrap();
+        }
+
+        info!("Debug mode enabled!");
+    } else {
+        CombinedLogger::init(
+            vec![
+                TermLogger::new(LevelFilter::Warn, Config::default(), TerminalMode::Mixed, ColorChoice::Auto),
+                WriteLogger::new(LevelFilter::Info, Config::default(), File::create("mpconn_normal.log").unwrap()),
+            ]
+        ).unwrap();
+    }
+
     let settings: settings::SettingsFile =
         serde_json::from_str(std::fs::read_to_string(args.config).unwrap().as_str()).unwrap();
 
-    println!("Using config: {:?}", settings);
+    info!("Using config: {:?}", settings);
 
     let mut remotes: Vec<Remote> = Vec::new();
 
@@ -75,7 +125,8 @@ async fn main() {
     let mut tx_counter: usize = 0;
     let mut rx_counter: usize = 0;
 
-    let mut peer_list = PeerList::new(Some(settings.peers));
+    let peer_list = RwLock::new(PeerList::new(Some(settings.peers)));
+    let mut sequencer = Sequencer::new(Duration::from_millis(3));
 
     let mut maintenance_interval = time::interval(Duration::from_secs(5));
     let mut keepalive_interval = time::interval(Duration::from_secs(settings.keep_alive_interval));
@@ -84,38 +135,48 @@ async fn main() {
 
     loop {
         tokio::select! {
-            socket_result = await_remotes_receive(&mut remotes) => {
-                let (recieved_bytes, addr) = socket_result;
-                //println!("Got {} bytes from {} on UDP", recieved_bytes.len() , addr);
-                //println!("{:?}", recieved_bytes);
 
-                let deserialized_packet: messages::Packet = match bincode_config.deserialize::<Messages>(&recieved_bytes) {
-                    Ok(decoded) => {
-                        match decoded {
-                            Messages::Packet(pkt) => {
-                                pkt
-                            },
-                            Messages::Keepalive => {
-                                println!("Received keepalive msg from: {:?}", addr);
-                                peer_list.add_peer(addr);
-                                continue
+            (socket_result, receiver_interface) = await_remotes_receive(&mut remotes, &peer_list) => {
+
+                match settings.reorder {
+                    true => {
+                        if let Some(packet) = socket_result {
+                            if packet.seq >= sequencer.next_seq && args.debug {
+                                if let Some(if_log) = &mut interface_logger {
+                                    write_interface_log(if_log, &receiver_interface, packet.seq).await;
+                                }
+                            }
+
+                            sequencer.insert_packet(packet);
+
+                            while sequencer.have_next_packet() {
+
+                                if let Some(next_packet) = sequencer.get_next_packet() {
+                                    let mut output = BytesMut::from(next_packet.bytes.as_slice());
+                                    local.write(&mut output).await;
+                                }
                             }
                         }
-                    },
-                    Err(err) => {
-                        // If we receive garbage, simply throw it away and continue.
-                        println!("Unable do deserialize packet. Got error: {}", err);
-                        println!("{:?}", recieved_bytes);
-                        continue
                     }
-                };
 
-                if deserialized_packet.seq > rx_counter {
-                    rx_counter = deserialized_packet.seq;
-                    let mut output = BytesMut::from(deserialized_packet.bytes.as_slice());
-                    local.write(&mut output).await;
+                    false => {
+                        if let Some(packet) = socket_result {
+                            if packet.seq > rx_counter {
+                                if args.debug {
+                                    if let Some(if_log) = &mut interface_logger {
+                                        write_interface_log(if_log, &receiver_interface, packet.seq).await;
+                                    }
+
+
+                                }
+
+                                rx_counter = packet.seq;
+                                let mut output = BytesMut::from(packet.bytes.as_slice());
+                                local.write(&mut output).await;
+                            }
+                        }
+                    }
                 }
-
 
 
             }
@@ -129,7 +190,9 @@ async fn main() {
 
                 let serialized_packet = bincode_config.serialize(&Messages::Packet(packet)).unwrap();
 
-                for peer in peer_list.get_peers() {
+                let peer_list_read_lock = peer_list.read().await;
+
+                for peer in peer_list_read_lock.get_peers() {
                     await_remotes_send(&mut remotes, bytes::Bytes::copy_from_slice(&serialized_packet), peer).await;
                 }
 
@@ -138,13 +201,34 @@ async fn main() {
             }
 
             _ = maintenance_interval.tick() => {
-                maintenance(&mut peer_list).await;
+                let mut peer_list_write_lock = peer_list.write().await;
+                maintenance(&mut peer_list_write_lock).await;
+
+                // Flush interface_log if it is enabled
+                if args.debug {
+                    if let Some(if_log) = &mut interface_logger {
+                        if_log.flush().await.unwrap();
+                    }
+                }
+
+                println!("Sequencer packet queue length: {}", sequencer.get_queue_length());
             }
 
             _ = keepalive_interval.tick() => {
+                let mut peer_list_write_lock = peer_list.write().await;
                 for remote in &mut remotes {
-                    remote.keepalive(&mut peer_list).await
+                    remote.keepalive(&mut peer_list_write_lock).await
                 }
+            }
+
+            _ = sequencer.tick() => {
+                    while sequencer.have_next_packet() {
+
+                        if let Some(next_packet) = sequencer.get_next_packet() {
+                            let mut output = BytesMut::from(next_packet.bytes.as_slice());
+                            local.write(&mut output).await;
+                        }
+                    }
             }
 
         }
