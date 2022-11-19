@@ -1,6 +1,11 @@
 {
   "peers": [
-    "172.16.200.4:10001"
+    {
+      "addresses": [
+        "172.16.200.4:10001"
+      ],
+      "id": 1337
+    }
   ],
   "keep_alive_interval": 10,
   "reorder": true,
