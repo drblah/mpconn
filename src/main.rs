@@ -192,7 +192,7 @@ async fn main() {
 
                 let peer_list_read_lock = peer_list.read().await;
 
-                for peer in peer_list_read_lock.get_peers() {
+                for peer in peer_list_read_lock.get_all_connections() {
                     await_remotes_send(&mut remotes, bytes::Bytes::copy_from_slice(&serialized_packet), peer).await;
                 }
 

@@ -148,7 +148,7 @@ async fn udp_handle_received(recieved_bytes: BytesMut, addr: SocketAddr, peer_li
                     println!("Received keepalive msg from: {:?}, ID: {}", addr, keepalive.peer_id);
                     let mut peer_list_write_lock = peer_list.write().await;
 
-                    peer_list_write_lock.add_peer(addr);
+                    peer_list_write_lock.add_peer(keepalive.peer_id, addr);
                     None
                 }
             }
@@ -173,7 +173,7 @@ async fn udp_keepalive(remote: &mut Remote, peer_list: &mut PeerList) {
 
     let serialized_packet = bincode_config.serialize(&Messages::Keepalive(keepalive_message)).unwrap();
 
-    for peer in peer_list.get_peers() {
+    for peer in peer_list.get_all_connections() {
         remote
             .write(bytes::Bytes::copy_from_slice(&serialized_packet), peer)
             .await

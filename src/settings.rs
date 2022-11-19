@@ -30,8 +30,14 @@ pub enum RemoteTypes {
 }
 
 #[derive(Deserialize, Debug, Clone)]
+pub struct PeerConfig {
+    pub addresses: Vec<SocketAddr>,
+    pub id: u16,
+}
+
+#[derive(Deserialize, Debug, Clone)]
 pub struct SettingsFile {
-    pub peers: Vec<SocketAddr>,
+    pub peers: Vec<PeerConfig>,
     pub keep_alive_interval: u64,
     pub local: LocalTypes,
     pub remotes: Vec<RemoteTypes>,

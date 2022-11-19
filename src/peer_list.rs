@@ -1,20 +1,20 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::{Duration, SystemTime};
+use crate::settings::PeerConfig;
 
 pub struct PeerList {
-    peers: HashMap<SocketAddr, Peer>,
+    peers: HashMap<u16, Peer>,
     stale_time_limit: Duration,
 }
 
-#[derive(Hash, Eq, PartialEq, Debug, Clone)]
+#[derive(Eq, PartialEq, Debug, Clone)]
 pub struct Peer {
-    address: SocketAddr,
-    last_seen: SystemTime,
+    connections: HashMap<SocketAddr, SystemTime>
 }
 
 impl PeerList {
-    pub fn new(peers: Option<Vec<SocketAddr>>) -> Self {
+    pub fn new(peers: Option<Vec<PeerConfig>>) -> Self {
         let mut peer_list = PeerList {
             peers: HashMap::new(),
             stale_time_limit: Duration::from_secs(30),
@@ -22,12 +22,17 @@ impl PeerList {
 
         if let Some(peers) = peers {
             for peer in peers {
+                let mut new_peer = Peer {
+                    connections: HashMap::new()
+                };
+
+                for connection in peer.addresses {
+                    new_peer.connections.insert(connection, SystemTime::now());
+                }
+
                 peer_list.peers.insert(
-                    peer,
-                    Peer {
-                        address: peer,
-                        last_seen: SystemTime::now(),
-                    },
+                    peer.id,
+                    new_peer,
                 );
             }
         }
@@ -35,48 +40,77 @@ impl PeerList {
         peer_list
     }
 
-    pub fn add_peer(&mut self, peer: SocketAddr) {
-        if !self.peers.contains_key(&peer) {
-            println!("Adding new peer: {:?}", peer);
-            self.peers.insert(
-                peer,
-                Peer {
-                    address: peer,
-                    last_seen: SystemTime::now(),
-                },
-            );
+    pub fn add_peer(&mut self, peer_id: u16, address: SocketAddr) {
 
-            println!("My peer list:\n{:?}", self.peers)
-        } else {
-            println!("Updating last_seen for peer: {:?}", peer);
-            self.peers
-                .entry(peer)
-                .and_modify(|peer| peer.last_seen = SystemTime::now());
+        // We already know this peer
+        match self.peers.get_mut(&peer_id) {
+            Some(peer) => {
+                match peer.connections.get_mut(&address) {
+                    Some(lastseen) => {
+                        println!("Updating last seen for peer connection - ID: {}, address: {}", peer_id, address);
+                        *lastseen = SystemTime::now()
+                    }
+
+                    _ => {
+                        println!("Inserting new connection: {} for peer: {}", address, peer_id);
+                        peer.connections.insert(
+                            address,
+                            SystemTime::now(),
+                        );
+                    }
+                }
+            }
+
+            _ => {
+                println!("Inserting new peer with ID: {} and the connection: {}", peer_id, address);
+
+                let mut new_peer = Peer {
+                    connections: HashMap::new(),
+                };
+
+                new_peer.connections.insert(
+                    address,
+                    SystemTime::now(),
+                );
+
+                self.peers.insert(
+                    peer_id,
+                    new_peer,
+                );
+            }
         }
     }
 
-    pub fn get_peers(&self) -> Vec<SocketAddr> {
-        self.peers
-            .values()
-            .cloned()
-            .map(|peer| peer.address)
-            .collect()
+    pub fn get_all_connections(&self) -> Vec<SocketAddr> {
+        let mut connections = Vec::new();
+
+        for peer in self.peers.values() {
+            for connection in peer.connections.keys() {
+                connections.push(
+                    connection.clone()
+                )
+            }
+        }
+
+        connections
     }
 
     pub fn prune_stale_peers(&mut self) {
         let now = SystemTime::now();
-        let old_size = self.peers.len();
 
-        self.peers.retain(|_, peer| {
-            now.duration_since(peer.last_seen)
-                .unwrap()
-                .lt(&self.stale_time_limit)
-        });
+        for (peer_id, peer) in self.peers.iter_mut() {
+            let old_size = peer.connections.len();
 
-        let pruned_size = self.peers.len();
+            peer.connections.retain(|_, lastseen| {
+                now.duration_since(*lastseen)
+                    .unwrap()
+                    .lt(&self.stale_time_limit)
+            });
 
-        if pruned_size < old_size {
-            println!("Pruned {} stale peers", old_size - pruned_size)
+            let pruned_size = peer.connections.len();
+            if pruned_size < old_size {
+                println!("Pruned {} stale connections from {}", old_size - pruned_size, peer_id)
+            }
         }
     }
 }
