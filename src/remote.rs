@@ -11,7 +11,7 @@ use tokio::net::UdpSocket;
 use tokio::sync::RwLock;
 use tokio_util::codec::BytesCodec;
 use tokio_util::udp::UdpFramed;
-use crate::messages::Packet;
+use crate::messages::{Packet, Keepalive};
 use bincode::Options;
 
 pub enum RemoteReaders {
@@ -27,11 +27,12 @@ pub enum RemoteWriters {
 pub struct Remote {
     pub reader: RemoteReaders,
     pub writer: RemoteWriters,
-    interface: String
+    interface: String,
+    peer_id: u16,
 }
 
 impl Remote {
-    pub fn new(settings: RemoteTypes) -> Self {
+    pub fn new(settings: RemoteTypes, peer_id: u16) -> Self {
         match settings {
             RemoteTypes::UDP {
                 iface,
@@ -48,7 +49,8 @@ impl Remote {
                 Remote {
                     reader: RemoteReaders::UDPReader(reader),
                     writer: RemoteWriters::UDPWriter(writer),
-                    interface: iface
+                    interface: iface,
+                    peer_id,
                 }
             }
             RemoteTypes::UDPLz4 {
@@ -66,7 +68,8 @@ impl Remote {
                 Remote {
                     reader: RemoteReaders::UDPReaderLz4(reader),
                     writer: RemoteWriters::UDPWriterLz4(writer),
-                    interface: iface
+                    interface: iface,
+                    peer_id,
                 }
             }
         }
@@ -141,8 +144,8 @@ async fn udp_handle_received(recieved_bytes: BytesMut, addr: SocketAddr, peer_li
                 Messages::Packet(pkt) => {
                     Some(pkt)
                 },
-                Messages::Keepalive => {
-                    println!("Received keepalive msg from: {:?}", addr);
+                Messages::Keepalive(keepalive) => {
+                    println!("Received keepalive msg from: {:?}, ID: {}", addr, keepalive.peer_id);
                     let mut peer_list_write_lock = peer_list.write().await;
 
                     peer_list_write_lock.add_peer(addr);
@@ -164,7 +167,11 @@ async fn udp_handle_received(recieved_bytes: BytesMut, addr: SocketAddr, peer_li
 async fn udp_keepalive(remote: &mut Remote, peer_list: &mut PeerList) {
     let bincode_config = bincode::options().with_varint_encoding().allow_trailing_bytes();
 
-    let serialized_packet = bincode_config.serialize(&Messages::Keepalive).unwrap();
+    let keepalive_message = Keepalive {
+        peer_id: remote.peer_id
+    };
+
+    let serialized_packet = bincode_config.serialize(&Messages::Keepalive(keepalive_message)).unwrap();
 
     for peer in peer_list.get_peers() {
         remote

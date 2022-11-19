@@ -35,5 +35,6 @@ pub struct SettingsFile {
     pub keep_alive_interval: u64,
     pub local: LocalTypes,
     pub remotes: Vec<RemoteTypes>,
-    pub reorder: bool
+    pub reorder: bool,
+    pub peer_id: u16,
 }

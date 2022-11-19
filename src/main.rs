@@ -115,7 +115,7 @@ async fn main() {
     let mut remotes: Vec<Remote> = Vec::new();
 
     for dev in &settings.remotes {
-        remotes.push(Remote::new(dev.clone()))
+        remotes.push(Remote::new(dev.clone(), settings.peer_id))
     }
 
     let mut local = local::Local::new(settings.clone());

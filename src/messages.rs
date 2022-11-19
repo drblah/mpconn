@@ -8,10 +8,12 @@ pub struct Packet {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-pub struct Keepalive {}
+pub struct Keepalive {
+    pub peer_id: u16,
+}
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub enum Messages {
     Packet(Packet),
-    Keepalive,
+    Keepalive(Keepalive),
 }
