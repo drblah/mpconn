@@ -26,9 +26,7 @@ Each endpoint needs a host configuration. This configuration involves one or mor
 On each endpoint, run `mpconn --config <host-config>.json`
 
 ## Todo
-* Hole punching for NAT traversal
 * QUIC Remote transport
-* Compression of payloads
 * Packing
 * Combine compression and packing
 * Gateway management protocol
