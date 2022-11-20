@@ -28,8 +28,7 @@ impl Local {
                 }
             }
             settings::LocalTypes::Layer3 {
-                tun_ip,
-                peer_tun_addr: _peer_tun_addr,
+                tun_ip
             } => {
                 let tun = make_tunnel(tun_ip);
 

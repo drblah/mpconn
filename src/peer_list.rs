@@ -95,6 +95,16 @@ impl PeerList {
         connections
     }
 
+    pub fn get_peer_connections(&self, peer_id: u16) -> Vec<SocketAddr> {
+        let mut connections = Vec::new();
+
+        if let Some(peer) = self.peers.get(&peer_id) {
+            connections = peer.connections.keys().cloned().collect();
+        }
+
+        connections
+    }
+
     pub fn prune_stale_peers(&mut self) {
         let now = SystemTime::now();
 

@@ -23,6 +23,7 @@ use tokio::fs::File as tokioFile;
 use simplelog::*;
 use std::fs::File;
 use crate::sequencer::Sequencer;
+use crate::traffic_director::Layer3Director;
 
 mod async_pcap;
 mod local;
@@ -31,6 +32,7 @@ mod peer_list;
 mod remote;
 mod settings;
 mod sequencer;
+mod traffic_director;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
@@ -120,6 +122,23 @@ async fn main() {
 
     let mut local = local::Local::new(settings.clone());
 
+    // Cache which type of Local we are running
+    let mut traffic_director = match settings.local {
+        settings::LocalTypes::Layer2 { .. } => {
+            todo!()
+        },
+        settings::LocalTypes::Layer3 { .. } => {
+            let mut td = traffic_director::Layer3Director::new();
+
+            for peer in &settings.peers {
+                td.insert_route(peer.id, peer.tun_addr);
+            }
+
+            td
+        }
+    };
+
+
     let mut tun_buf = BytesMut::with_capacity(65535);
 
     let mut tx_counter: usize = 0;
@@ -153,6 +172,7 @@ async fn main() {
 
                                 if let Some(next_packet) = sequencer.get_next_packet() {
                                     let mut output = BytesMut::from(next_packet.bytes.as_slice());
+                                    traffic_director.learn_route(next_packet.peer_id, &output);
                                     local.write(&mut output).await;
                                 }
                             }
@@ -172,6 +192,7 @@ async fn main() {
 
                                 rx_counter = packet.seq;
                                 let mut output = BytesMut::from(packet.bytes.as_slice());
+                                traffic_director.learn_route(packet.peer_id, &output);
                                 local.write(&mut output).await;
                             }
                         }
@@ -182,20 +203,24 @@ async fn main() {
             }
 
             _tun_result = local.read(&mut tun_buf) => {
-                let packet = messages::Packet{
-                    seq: tx_counter,
-                    bytes: tun_buf[..].to_vec()
-                };
-                tx_counter += 1;
 
-                let serialized_packet = bincode_config.serialize(&Messages::Packet(packet)).unwrap();
+                if let Some(destination_peer) = traffic_director.get_route(&tun_buf) {
+                    let packet = messages::Packet{
+                        seq: tx_counter,
+                        peer_id: settings.peer_id,
+                        bytes: tun_buf[..].to_vec()
+                    };
+                    tx_counter += 1;
 
-                let peer_list_read_lock = peer_list.read().await;
+                    let serialized_packet = bincode_config.serialize(&Messages::Packet(packet)).unwrap();
 
-                for peer in peer_list_read_lock.get_all_connections() {
-                    await_remotes_send(&mut remotes, bytes::Bytes::copy_from_slice(&serialized_packet), peer).await;
+                    //let peer_id = traffic_director.destination_to_peer()
+                    let peer_list_read_lock = peer_list.read().await;
+
+                    for peer in peer_list_read_lock.get_peer_connections(destination_peer) {
+                        await_remotes_send(&mut remotes, bytes::Bytes::copy_from_slice(&serialized_packet), peer).await;
+                    }
                 }
-
 
                 tun_buf.clear();
             }

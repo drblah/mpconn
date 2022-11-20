@@ -22,3 +22,4 @@ pcap = { git = "https://github.com/drblah/pcap", branch = "async_wrappable" }
 lz4_flex = { version = "0.9.3" }
 simplelog = "0.12.0"
 log = "0.4.17"
+etherparse = "0.12.0"
