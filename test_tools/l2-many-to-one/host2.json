@@ -2,7 +2,8 @@
   "peers": [
   ],
   "keep_alive_interval": 15,
-  "reorder": true,
+  "reorder": false,
+  "peer_id": 11,
   "local": {
     "type": "Layer2",
     "network_interface": "gw_veth2"

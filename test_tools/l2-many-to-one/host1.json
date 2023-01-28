@@ -1,10 +1,16 @@
 {
   "peers": [
-    "172.16.200.3:10001"
+    {
+      "addresses": [
+        "172.16.200.3:10001"
+      ],
+      "id": 11
+    }
   ],
   "keep_alive": true,
   "keep_alive_interval": 10,
-  "reorder": true,
+  "reorder": false,
+  "peer_id": 10,
   "local": {
     "type": "Layer2",
     "network_interface": "gw_veth1"
