@@ -1,10 +1,7 @@
 use std::collections::HashMap;
-use std::hash::Hash;
 use std::net::IpAddr;
 use bytes::BytesMut;
-use etherparse::{ether_type, InternetSlice, LinkSlice, SlicedPacket};
-use libc::link;
-use crate::traffic_director::Path::Peer;
+use etherparse::{InternetSlice, LinkSlice, SlicedPacket};
 
 pub enum DirectorType {
     Layer2(Layer2Director),

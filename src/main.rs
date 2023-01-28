@@ -1,5 +1,4 @@
 #![feature(io_error_more)]
-#![feature(map_first_last)]
 #[macro_use] extern crate log;
 extern crate core;
 
@@ -23,7 +22,6 @@ use tokio::fs::File as tokioFile;
 use simplelog::*;
 use std::fs::File;
 use crate::sequencer::Sequencer;
-use crate::traffic_director::Layer3Director;
 
 mod async_pcap;
 mod local;
