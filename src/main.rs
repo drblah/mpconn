@@ -125,7 +125,11 @@ async fn main() {
     // Cache which type of Local we are running
     let mut traffic_director = match settings.local {
         settings::LocalTypes::Layer2 { .. } => {
-            todo!()
+            let td = traffic_director::Layer2Director::new();
+
+            // TODO: Add a way to seed the initial peers?
+
+            traffic_director::DirectorType::Layer2(td)
         },
         settings::LocalTypes::Layer3 { .. } => {
             let mut td = traffic_director::Layer3Director::new();
@@ -134,7 +138,7 @@ async fn main() {
                 td.insert_route(peer.id, peer.tun_addr);
             }
 
-            td
+            traffic_director::DirectorType::Layer3(td)
         }
     };
 
@@ -172,7 +176,17 @@ async fn main() {
 
                                 if let Some(next_packet) = sequencer.get_next_packet() {
                                     let mut output = BytesMut::from(next_packet.bytes.as_slice());
-                                    traffic_director.learn_route(next_packet.peer_id, &output);
+
+                                    match &mut traffic_director {
+                                        traffic_director::DirectorType::Layer2(td) => {
+                                            td.learn_path(next_packet.peer_id, &output);
+                                        },
+                                        traffic_director::DirectorType::Layer3(td) => {
+                                            td.learn_route(next_packet.peer_id, &output);
+                                        }
+                                    }
+
+
                                     local.write(&mut output).await;
                                 }
                             }
@@ -192,7 +206,16 @@ async fn main() {
 
                                 rx_counter = packet.seq;
                                 let mut output = BytesMut::from(packet.bytes.as_slice());
-                                traffic_director.learn_route(packet.peer_id, &output);
+
+                                match &mut traffic_director {
+                                        traffic_director::DirectorType::Layer2(td) => {
+                                            td.learn_path(packet.peer_id, &output);
+                                        },
+                                        traffic_director::DirectorType::Layer3(td) => {
+                                            td.learn_route(packet.peer_id, &output);
+                                        }
+                                    }
+
                                 local.write(&mut output).await;
                             }
                         }
@@ -204,23 +227,58 @@ async fn main() {
 
             _tun_result = local.read(&mut tun_buf) => {
 
-                if let Some(destination_peer) = traffic_director.get_route(&tun_buf) {
-                    let packet = messages::Packet{
-                        seq: tx_counter,
-                        peer_id: settings.peer_id,
-                        bytes: tun_buf[..].to_vec()
-                    };
-                    tx_counter += 1;
+                match &mut traffic_director {
+                    traffic_director::DirectorType::Layer2(td) => {
+                        if let Some(destination_peer) = td.get_path(&tun_buf) {
+                            let packet = messages::Packet{
+                                seq: tx_counter,
+                                peer_id: settings.peer_id,
+                                bytes: tun_buf[..].to_vec()
+                            };
+                            tx_counter += 1;
 
-                    let serialized_packet = bincode_config.serialize(&Messages::Packet(packet)).unwrap();
+                            let serialized_packet = bincode_config.serialize(&Messages::Packet(packet)).unwrap();
 
-                    //let peer_id = traffic_director.destination_to_peer()
-                    let peer_list_read_lock = peer_list.read().await;
+                            //let peer_id = traffic_director.destination_to_peer()
+                            let peer_list_read_lock = peer_list.read().await;
 
-                    for peer in peer_list_read_lock.get_peer_connections(destination_peer) {
-                        await_remotes_send(&mut remotes, bytes::Bytes::copy_from_slice(&serialized_packet), peer).await;
+                            match destination_peer {
+                                traffic_director::Path::Peer(peer_id) => {
+                                    for peer in peer_list_read_lock.get_peer_connections(peer_id) {
+                                        await_remotes_send(&mut remotes, bytes::Bytes::copy_from_slice(&serialized_packet), peer).await;
+                                    }
+                                }
+                                traffic_director::Path::Broadcast => {
+                                    for peer in peer_list_read_lock.get_all_connections() {
+                                        await_remotes_send(&mut remotes, bytes::Bytes::copy_from_slice(&serialized_packet), peer).await;
+                                    }
+                                }
+                            }
+
+                        }
+                    },
+                    traffic_director::DirectorType::Layer3(td) => {
+                        if let Some(destination_peer) = td.get_route(&tun_buf) {
+                            let packet = messages::Packet{
+                                seq: tx_counter,
+                                peer_id: settings.peer_id,
+                                bytes: tun_buf[..].to_vec()
+                            };
+                            tx_counter += 1;
+
+                            let serialized_packet = bincode_config.serialize(&Messages::Packet(packet)).unwrap();
+
+                            //let peer_id = traffic_director.destination_to_peer()
+                            let peer_list_read_lock = peer_list.read().await;
+
+                            for peer in peer_list_read_lock.get_peer_connections(destination_peer) {
+                                await_remotes_send(&mut remotes, bytes::Bytes::copy_from_slice(&serialized_packet), peer).await;
+                            }
+                        }
                     }
                 }
+
+
 
                 tun_buf.clear();
             }
