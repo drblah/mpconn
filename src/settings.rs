@@ -31,7 +31,7 @@ pub enum RemoteTypes {
 #[derive(Deserialize, Debug, Clone)]
 pub struct PeerConfig {
     pub addresses: Vec<SocketAddr>,
-    pub tun_addr: IpAddr,
+    pub tun_addr: Option<IpAddr>,
     pub id: u16,
 }
 

@@ -135,7 +135,9 @@ async fn main() {
             let mut td = traffic_director::Layer3Director::new();
 
             for peer in &settings.peers {
-                td.insert_route(peer.id, peer.tun_addr);
+                if let Some(peer_tun_addr) = peer.tun_addr {
+                    td.insert_route(peer.id, peer_tun_addr);
+                }
             }
 
             traffic_director::DirectorType::Layer3(td)
