@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{Ipv4Addr, SocketAddr};
 
 #[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
