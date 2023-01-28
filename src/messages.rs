@@ -1,3 +1,4 @@
+use std::net::Ipv4Addr;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
@@ -13,6 +14,7 @@ pub struct Packet {
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct Keepalive {
     pub peer_id: u16,
+    pub tun_ip: Option<Ipv4Addr>
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]

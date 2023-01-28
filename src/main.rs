@@ -43,14 +43,14 @@ struct Args {
     debug: bool
 }
 
-async fn await_remotes_receive(remotes: &mut Vec<Remote>, peer_list: &RwLock<PeerList>) -> (Option<Packet>, String) {
+async fn await_remotes_receive(remotes: &mut Vec<Remote>, peer_list: &RwLock<PeerList>, traffic_director: &RwLock<traffic_director::DirectorType>) -> (Option<Packet>, String) {
     let futures = FuturesUnordered::new();
     let mut interfaces = Vec::new();
 
     for remote in remotes {
         interfaces.push(remote.get_interface());
 
-        futures.push(remote.read(peer_list).boxed());
+        futures.push(remote.read(peer_list, traffic_director).boxed());
     }
 
     let (item_resolved, ready_future_index, _remaining_futures) = select_all(futures).await;
@@ -115,30 +115,27 @@ async fn main() {
     let mut remotes: Vec<Remote> = Vec::new();
 
     for dev in &settings.remotes {
-        remotes.push(Remote::new(dev.clone(), settings.peer_id))
+        let tun_ip = match &settings.local {
+            settings::LocalTypes::Layer3 { tun_ip } => Some(*tun_ip),
+            settings::LocalTypes::Layer2 { .. } => None
+        };
+
+        remotes.push(Remote::new(dev.clone(), settings.peer_id, tun_ip))
     }
 
     let mut local = local::Local::new(settings.clone());
 
     // Cache which type of Local we are running
-    let mut traffic_director = match settings.local {
+    let traffic_director = match settings.local {
         settings::LocalTypes::Layer2 { .. } => {
             let td = traffic_director::Layer2Director::new();
 
-            // TODO: Add a way to seed the initial peers?
-
-            traffic_director::DirectorType::Layer2(td)
+            RwLock::new(traffic_director::DirectorType::Layer2(td))
         },
         settings::LocalTypes::Layer3 { .. } => {
-            let mut td = traffic_director::Layer3Director::new();
+            let td = traffic_director::Layer3Director::new();
 
-            for peer in &settings.peers {
-                if let Some(peer_tun_addr) = peer.tun_addr {
-                    td.insert_route(peer.id, peer_tun_addr);
-                }
-            }
-
-            traffic_director::DirectorType::Layer3(td)
+            RwLock::new(traffic_director::DirectorType::Layer3(td))
         }
     };
 
@@ -159,7 +156,7 @@ async fn main() {
     loop {
         tokio::select! {
 
-            (socket_result, receiver_interface) = await_remotes_receive(&mut remotes, &peer_list) => {
+            (socket_result, receiver_interface) = await_remotes_receive(&mut remotes, &peer_list, &traffic_director) => {
 
                 match settings.reorder {
                     true => {
@@ -177,12 +174,13 @@ async fn main() {
                                 if let Some(next_packet) = sequencer.get_next_packet() {
                                     let mut output = BytesMut::from(next_packet.bytes.as_slice());
 
-                                    match &mut traffic_director {
+                                    let mut td_lock = traffic_director.write().await;
+
+                                    match &mut *td_lock {
                                         traffic_director::DirectorType::Layer2(td) => {
                                             td.learn_path(next_packet.peer_id, &output);
                                         },
-                                        traffic_director::DirectorType::Layer3(td) => {
-                                            td.learn_route(next_packet.peer_id, &output);
+                                        traffic_director::DirectorType::Layer3(_td) => {
                                         }
                                     }
 
@@ -207,12 +205,13 @@ async fn main() {
                                 rx_counter = packet.seq;
                                 let mut output = BytesMut::from(packet.bytes.as_slice());
 
-                                match &mut traffic_director {
+                                let mut td_lock = traffic_director.write().await;
+
+                                match &mut *td_lock {
                                         traffic_director::DirectorType::Layer2(td) => {
                                             td.learn_path(packet.peer_id, &output);
                                         },
-                                        traffic_director::DirectorType::Layer3(td) => {
-                                            td.learn_route(packet.peer_id, &output);
+                                        traffic_director::DirectorType::Layer3(_td) => {
                                         }
                                     }
 
@@ -227,7 +226,8 @@ async fn main() {
 
             _tun_result = local.read(&mut tun_buf) => {
 
-                match &mut traffic_director {
+                let td_lock = traffic_director.read().await;
+                match &*td_lock {
                     traffic_director::DirectorType::Layer2(td) => {
                         if let Some(destination_peer) = td.get_path(&tun_buf) {
                             let packet = messages::Packet{
@@ -268,7 +268,6 @@ async fn main() {
 
                             let serialized_packet = bincode_config.serialize(&Messages::Packet(packet)).unwrap();
 
-                            //let peer_id = traffic_director.destination_to_peer()
                             let peer_list_read_lock = peer_list.read().await;
 
                             for peer in peer_list_read_lock.get_peer_connections(destination_peer) {
