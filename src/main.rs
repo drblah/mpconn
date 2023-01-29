@@ -11,7 +11,7 @@ use bincode::Options;
 
 use crate::messages::{Messages, Packet};
 use crate::peer_list::PeerList;
-use crate::remote::Remote;
+use crate::remote::{AsyncRemote, UDPLz4Remote, UDPRemote};
 use clap::Parser;
 use futures::stream::FuturesUnordered;
 use tokio::sync::RwLock;
@@ -22,6 +22,7 @@ use tokio::fs::File as tokioFile;
 use simplelog::*;
 use std::fs::File;
 use crate::sequencer::Sequencer;
+use crate::settings::RemoteTypes;
 
 mod async_pcap;
 mod local;
@@ -43,7 +44,7 @@ struct Args {
     debug: bool
 }
 
-async fn await_remotes_receive(remotes: &mut Vec<Remote>, peer_list: &RwLock<PeerList>, traffic_director: &RwLock<traffic_director::DirectorType>) -> (Option<Packet>, String) {
+async fn await_remotes_receive(remotes: &mut Vec<Box<dyn AsyncRemote>>, peer_list: &RwLock<PeerList>, traffic_director: &RwLock<traffic_director::DirectorType>) -> (Option<Packet>, String) {
     let futures = FuturesUnordered::new();
     let mut interfaces = Vec::new();
 
@@ -58,7 +59,7 @@ async fn await_remotes_receive(remotes: &mut Vec<Remote>, peer_list: &RwLock<Pee
     (item_resolved, interfaces[ready_future_index].clone())
 }
 
-async fn await_remotes_send(remotes: &mut Vec<Remote>, packet: bytes::Bytes, target: SocketAddr) {
+async fn await_remotes_send(remotes: &mut Vec<Box<dyn AsyncRemote>>, packet: bytes::Bytes, target: SocketAddr) {
     let futures = FuturesUnordered::new();
 
     for remote in remotes {
@@ -112,7 +113,7 @@ async fn main() {
 
     info!("Using config: {:?}", settings);
 
-    let mut remotes: Vec<Remote> = Vec::new();
+    let mut remotes: Vec<Box<dyn AsyncRemote>> = Vec::new();
 
     for dev in &settings.remotes {
         let tun_ip = match &settings.local {
@@ -120,7 +121,19 @@ async fn main() {
             settings::LocalTypes::Layer2 { .. } => None
         };
 
-        remotes.push(Remote::new(dev.clone(), settings.peer_id, tun_ip))
+        //remotes.push(Remote::new(dev.clone(), settings.peer_id, tun_ip))
+        match dev {
+            RemoteTypes::UDP { iface, listen_addr, listen_port } => {
+                remotes.push(
+                    Box::new(UDPRemote::new(iface.to_string(), *listen_addr, *listen_port, settings.peer_id, tun_ip))
+                );
+            },
+            RemoteTypes::UDPLz4 { iface, listen_addr, listen_port } => {
+                remotes.push(
+                    Box::new(UDPLz4Remote::new(iface.to_string(), *listen_addr, *listen_port, settings.peer_id, tun_ip))
+                )
+            }
+        }
     }
 
     let mut local = local::Local::new(settings.clone());

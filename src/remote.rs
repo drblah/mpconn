@@ -1,5 +1,8 @@
-use crate::settings::RemoteTypes;
-use crate::{Messages, PeerList, traffic_director};
+use crate::messages::{Keepalive, Packet};
+use crate::traffic_director::DirectorType;
+use crate::{traffic_director, Messages, PeerList};
+use async_trait::async_trait;
+use bincode::Options;
 use bytes::{Bytes, BytesMut};
 use futures::prelude::*;
 use futures::stream::{SplitSink, SplitStream, StreamExt};
@@ -11,153 +14,233 @@ use tokio::net::UdpSocket;
 use tokio::sync::RwLock;
 use tokio_util::codec::BytesCodec;
 use tokio_util::udp::UdpFramed;
-use crate::messages::{Packet, Keepalive};
-use bincode::Options;
 
-pub enum RemoteReaders {
-    UDPReader(SplitStream<UdpFramed<BytesCodec>>),
-    UDPReaderLz4(SplitStream<UdpFramed<BytesCodec>>),
+#[async_trait]
+pub trait AsyncRemote {
+    async fn write(&mut self, buffer: Bytes, destination: SocketAddr);
+    async fn read(
+        &mut self,
+        peer_list: &RwLock<PeerList>,
+        traffic_director: &RwLock<DirectorType>,
+    ) -> Option<Packet>;
+    async fn keepalive(&mut self, peer_list: &mut PeerList);
+    fn get_interface(&self) -> String;
 }
 
-pub enum RemoteWriters {
-    UDPWriter(SplitSink<UdpFramed<BytesCodec>, (Bytes, SocketAddr)>),
-    UDPWriterLz4(SplitSink<UdpFramed<BytesCodec>, (Bytes, SocketAddr)>),
-}
-
-pub struct Remote {
-    pub reader: RemoteReaders,
-    pub writer: RemoteWriters,
+pub struct UDPRemote {
     interface: String,
     peer_id: u16,
-    tun_ip: Option<Ipv4Addr>
+    tun_ip: Option<Ipv4Addr>,
+    input_stream: SplitStream<UdpFramed<BytesCodec>>,
+    output_stream: SplitSink<UdpFramed<BytesCodec>, (Bytes, SocketAddr)>,
 }
 
-impl Remote {
-    pub fn new(settings: RemoteTypes, peer_id: u16, tun_ip: Option<Ipv4Addr>) -> Self {
-        match settings {
-            RemoteTypes::UDP {
-                iface,
-                listen_addr,
-                listen_port,
-            } => {
-                let socket = UdpFramed::new(
-                    make_socket(&iface, listen_addr, listen_port),
-                    BytesCodec::new(),
-                );
+pub struct UDPLz4Remote {
+    interface: String,
+    peer_id: u16,
+    tun_ip: Option<Ipv4Addr>,
+    input_stream: SplitStream<UdpFramed<BytesCodec>>,
+    output_stream: SplitSink<UdpFramed<BytesCodec>, (Bytes, SocketAddr)>,
+}
 
-                let (writer, reader) = socket.split();
 
-                Remote {
-                    reader: RemoteReaders::UDPReader(reader),
-                    writer: RemoteWriters::UDPWriter(writer),
-                    interface: iface,
-                    peer_id,
-                    tun_ip
+#[async_trait]
+impl AsyncRemote for UDPRemote {
+    async fn write(&mut self, buffer: Bytes, destination: SocketAddr) {
+        match self.output_stream.send((buffer, destination)).await {
+            Ok(_) => {}
+            Err(e) => match e.kind() {
+                std::io::ErrorKind::NetworkUnreachable => {
+                    println!("{} Network Unreachable", self.interface)
                 }
-            }
-            RemoteTypes::UDPLz4 {
-                iface,
-                listen_addr,
-                listen_port,
-            } => {
-                let socket = UdpFramed::new(
-                    make_socket(&iface, listen_addr, listen_port),
-                    BytesCodec::new(),
-                );
-
-                let (writer, reader) = socket.split();
-
-                Remote {
-                    reader: RemoteReaders::UDPReaderLz4(reader),
-                    writer: RemoteWriters::UDPWriterLz4(writer),
-                    interface: iface,
-                    peer_id,
-                    tun_ip
-                }
-            }
+                _ => panic!(
+                    "{} Encountered unhandled problem when sending: {:?}",
+                    self.interface, e
+                ),
+            },
         }
     }
 
-    pub async fn write(&mut self, buffer: Bytes, destination: SocketAddr) {
-        match &mut self.writer {
-            RemoteWriters::UDPWriter(udp_writer) => {
-                match udp_writer.send((buffer, destination)).await {
-                    Ok(_) => {},
-                    Err(e) => {
-                        match e.kind() {
-                            std::io::ErrorKind::NetworkUnreachable => println!("{} Network Unreachable", self.interface),
-                            _ => panic!("{} Encountered unhandled problem when sending: {:?}", self.interface, e)
-                        }
-                    }
-                }
+    async fn read(
+        &mut self,
+        peer_list: &RwLock<PeerList>,
+        traffic_director: &RwLock<DirectorType>,
+    ) -> Option<Packet> {
+        let outcome = self.input_stream.next().await.unwrap();
+
+        match outcome {
+            Ok((recieved_bytes, addr)) => {
+                udp_handle_received(recieved_bytes, addr, peer_list, traffic_director).await
             }
-            RemoteWriters::UDPWriterLz4(udplz4_writer) => {
-                let compressed = compress_prepend_size(&buffer[..]);
-                udplz4_writer
-                    .send((Bytes::from(compressed), destination))
-                    .await
-                    .unwrap()
-            }
+            Err(e) => panic!("Failed to receive from UDP remote: {}", e),
         }
     }
 
-    pub async fn read(&mut self, peer_list: &RwLock<PeerList>, traffic_director: &RwLock<traffic_director::DirectorType>) -> Option<Packet> {
-        match &mut self.reader {
-            RemoteReaders::UDPReader(udp_reader) => {
-                let outcome = udp_reader.next().await.unwrap();
-
-                match outcome {
-                    Ok((recieved_bytes, addr)) => udp_handle_received(recieved_bytes, addr, peer_list, traffic_director).await,
-                    Err(e) => panic!("Failed to receive from UDP remote: {}", e),
-                }
-            }
-            RemoteReaders::UDPReaderLz4(udplz4_reader) => {
-                let outcome = udplz4_reader.next().await.unwrap();
-
-                match outcome {
-                    Ok((bytes, address)) => {
-                        let uncompressed = decompress_size_prepended(&bytes[..]).unwrap();
-
-                        udp_handle_received(BytesMut::from(uncompressed.as_slice()), address, peer_list, traffic_director).await
-                    }
-                    Err(e) => panic!("Failed to receive from UDP remote: {}", e),
-                }
-            }
-        }
+    async fn keepalive(&mut self, peer_list: &mut PeerList) {
+        self.udp_keepalive(peer_list).await
     }
 
-    pub async fn keepalive(&mut self, peer_list: &mut PeerList) {
-        match &mut self.writer {
-            RemoteWriters::UDPWriter(_) => udp_keepalive(self, peer_list).await,
-            RemoteWriters::UDPWriterLz4(_) => udp_keepalive(self, peer_list).await
-        }
-    }
-
-    pub fn get_interface(&self) -> String {
+    fn get_interface(&self) -> String {
         self.interface.clone()
     }
 }
 
-async fn udp_handle_received(recieved_bytes: BytesMut, addr: SocketAddr, peer_list: &RwLock<PeerList>, traffic_director: &RwLock<traffic_director::DirectorType>) -> Option<Packet> {
-    let bincode_config = bincode::options().with_varint_encoding().allow_trailing_bytes();
+impl UDPRemote {
+    pub fn new(
+        iface: String,
+        listen_addr: Ipv4Addr,
+        listen_port: u16,
+        peer_id: u16,
+        tun_ip: Option<Ipv4Addr>,
+    ) -> UDPRemote {
+        let socket = UdpFramed::new(
+            make_socket(&iface, listen_addr, listen_port),
+            BytesCodec::new(),
+        );
 
-    let deserialized_packet: Option<Packet> = match bincode_config.deserialize::<Messages>(&recieved_bytes) {
-        Ok(decoded) => {
-            match decoded {
-                Messages::Packet(pkt) => {
-                    Some(pkt)
-                },
+        let (writer, reader) = socket.split();
+
+        UDPRemote {
+            interface: iface,
+            peer_id,
+            tun_ip,
+            input_stream: reader,
+            output_stream: writer,
+        }
+    }
+
+    async fn udp_keepalive(&mut self, peer_list: &mut PeerList) {
+        let bincode_config = bincode::options()
+            .with_varint_encoding()
+            .allow_trailing_bytes();
+
+        let keepalive_message = Keepalive {
+            peer_id: self.peer_id,
+            tun_ip: self.tun_ip,
+        };
+
+        let serialized_packet = bincode_config
+            .serialize(&Messages::Keepalive(keepalive_message))
+            .unwrap();
+
+        for peer in peer_list.get_all_connections() {
+            self.write(bytes::Bytes::copy_from_slice(&serialized_packet), peer)
+                .await
+        }
+    }
+}
+
+#[async_trait]
+impl AsyncRemote for UDPLz4Remote {
+    async fn write(&mut self, buffer: Bytes, destination: SocketAddr) {
+        let compressed = compress_prepend_size(&buffer[..]);
+        self.output_stream
+            .send((Bytes::from(compressed), destination))
+            .await
+            .unwrap()
+    }
+
+    async fn read(&mut self, peer_list: &RwLock<PeerList>, traffic_director: &RwLock<DirectorType>) -> Option<Packet> {
+        let outcome = self.input_stream.next().await.unwrap();
+
+        match outcome {
+            Ok((bytes, address)) => {
+                let uncompressed = decompress_size_prepended(&bytes[..]).unwrap();
+
+                udp_handle_received(
+                    BytesMut::from(uncompressed.as_slice()),
+                    address,
+                    peer_list,
+                    traffic_director,
+                )
+                    .await
+            }
+            Err(e) => panic!("Failed to receive from UDP remote: {}", e),
+        }
+    }
+
+    async fn keepalive(&mut self, peer_list: &mut PeerList) {
+        self.udp_keepalive(peer_list).await
+    }
+
+    fn get_interface(&self) -> String {
+        self.interface.clone()
+    }
+}
+
+impl UDPLz4Remote {
+    pub fn new(
+        iface: String,
+        listen_addr: Ipv4Addr,
+        listen_port: u16,
+        peer_id: u16,
+        tun_ip: Option<Ipv4Addr>,
+    ) -> UDPRemote {
+        let socket = UdpFramed::new(
+            make_socket(&iface, listen_addr, listen_port),
+            BytesCodec::new(),
+        );
+
+        let (writer, reader) = socket.split();
+
+        UDPRemote {
+            interface: iface,
+            peer_id,
+            tun_ip,
+            input_stream: reader,
+            output_stream: writer,
+        }
+    }
+
+    async fn udp_keepalive(&mut self, peer_list: &mut PeerList) {
+        let bincode_config = bincode::options()
+            .with_varint_encoding()
+            .allow_trailing_bytes();
+
+        let keepalive_message = Keepalive {
+            peer_id: self.peer_id,
+            tun_ip: self.tun_ip,
+        };
+
+        let serialized_packet = bincode_config
+            .serialize(&Messages::Keepalive(keepalive_message))
+            .unwrap();
+
+        for peer in peer_list.get_all_connections() {
+            self.write(bytes::Bytes::copy_from_slice(&serialized_packet), peer)
+                .await
+        }
+    }
+}
+
+
+async fn udp_handle_received(
+    recieved_bytes: BytesMut,
+    addr: SocketAddr,
+    peer_list: &RwLock<PeerList>,
+    traffic_director: &RwLock<traffic_director::DirectorType>,
+) -> Option<Packet> {
+    let bincode_config = bincode::options()
+        .with_varint_encoding()
+        .allow_trailing_bytes();
+
+    let deserialized_packet: Option<Packet> =
+        match bincode_config.deserialize::<Messages>(&recieved_bytes) {
+            Ok(decoded) => match decoded {
+                Messages::Packet(pkt) => Some(pkt),
                 Messages::Keepalive(keepalive) => {
-                    println!("Received keepalive msg from: {:?}, ID: {}", addr, keepalive.peer_id);
+                    println!(
+                        "Received keepalive msg from: {:?}, ID: {}",
+                        addr, keepalive.peer_id
+                    );
                     let mut peer_list_write_lock = peer_list.write().await;
 
                     peer_list_write_lock.add_peer(keepalive.peer_id, addr);
 
-
                     let mut td_lock = traffic_director.write().await;
 
                     match &mut *td_lock {
-                        traffic_director::DirectorType::Layer2(_td) => {},
+                        traffic_director::DirectorType::Layer2(_td) => {}
                         traffic_director::DirectorType::Layer3(td) => {
                             if let Some(tun_ip) = keepalive.tun_ip {
                                 let tun_ip = IpAddr::V4(tun_ip);
@@ -168,34 +251,16 @@ async fn udp_handle_received(recieved_bytes: BytesMut, addr: SocketAddr, peer_li
 
                     None
                 }
+            },
+            Err(err) => {
+                // If we receive garbage, simply throw it away and continue.
+                println!("Unable do deserialize packet. Got error: {}", err);
+                println!("{:?}", recieved_bytes);
+                None
             }
-        },
-        Err(err) => {
-            // If we receive garbage, simply throw it away and continue.
-            println!("Unable do deserialize packet. Got error: {}", err);
-            println!("{:?}", recieved_bytes);
-            None
-        }
-    };
+        };
 
     deserialized_packet
-}
-
-async fn udp_keepalive(remote: &mut Remote, peer_list: &mut PeerList) {
-    let bincode_config = bincode::options().with_varint_encoding().allow_trailing_bytes();
-
-    let keepalive_message = Keepalive {
-        peer_id: remote.peer_id,
-        tun_ip: remote.tun_ip,
-    };
-
-    let serialized_packet = bincode_config.serialize(&Messages::Keepalive(keepalive_message)).unwrap();
-
-    for peer in peer_list.get_all_connections() {
-        remote
-            .write(bytes::Bytes::copy_from_slice(&serialized_packet), peer)
-            .await
-    }
 }
 
 fn make_socket(interface: &str, local_address: Ipv4Addr, local_port: u16) -> UdpSocket {
