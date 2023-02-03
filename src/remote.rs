@@ -37,12 +37,7 @@ pub struct UDPRemote {
 }
 
 pub struct UDPLz4Remote {
-    interface: String,
-    peer_id: u16,
-    tun_ip: Option<Ipv4Addr>,
-    input_stream: SplitStream<UdpFramed<BytesCodec>>,
-    output_stream: SplitSink<UdpFramed<BytesCodec>, (Bytes, SocketAddr)>,
-    peer_list: Arc<RwLock<PeerList>>
+    inner_udp_remote: UDPRemote
 }
 
 
@@ -193,20 +188,20 @@ impl UDPRemote {
 impl AsyncRemote for UDPLz4Remote {
     async fn write(&mut self, buffer: Bytes, destination: SocketAddr) {
         let compressed = compress_prepend_size(&buffer[..]);
-        self.output_stream
+        self.inner_udp_remote.output_stream
             .send((Bytes::from(compressed), destination))
             .await
             .unwrap()
     }
 
     async fn read(&mut self, traffic_director: &RwLock<DirectorType>) -> Option<Packet> {
-        let outcome = self.input_stream.next().await.unwrap();
+        let outcome = self.inner_udp_remote.input_stream.next().await.unwrap();
 
         match outcome {
             Ok((bytes, address)) => {
                 let uncompressed = decompress_size_prepended(&bytes[..]).unwrap();
 
-                self.udp_handle_received(
+                self.inner_udp_remote.udp_handle_received(
                     BytesMut::from(uncompressed.as_slice()),
                     address,
                     traffic_director,
@@ -218,11 +213,11 @@ impl AsyncRemote for UDPLz4Remote {
     }
 
     async fn keepalive(&mut self) {
-        self.udp_keepalive().await
+        self.inner_udp_remote.udp_keepalive().await
     }
 
     fn get_interface(&self) -> String {
-        self.interface.clone()
+        self.inner_udp_remote.interface.clone()
     }
 }
 
@@ -242,90 +237,18 @@ impl UDPLz4Remote {
 
         let (writer, reader) = socket.split();
 
-        UDPLz4Remote {
+        let inner_udp_remote = UDPRemote {
             interface: iface,
             peer_id,
             tun_ip,
             input_stream: reader,
             output_stream: writer,
             peer_list,
-        }
-    }
-
-    async fn udp_keepalive(&mut self) {
-        let bincode_config = bincode::options()
-            .with_varint_encoding()
-            .allow_trailing_bytes();
-
-        let keepalive_message = Keepalive {
-            peer_id: self.peer_id,
-            tun_ip: self.tun_ip,
         };
 
-        let serialized_packet = bincode_config
-            .serialize(&Messages::Keepalive(keepalive_message))
-            .unwrap();
-
-        let peers: Vec<SocketAddr>;
-
-        {
-            let peer_list_read_lock = self.peer_list.read().await;
-            peers = peer_list_read_lock.get_all_connections();
+        UDPLz4Remote {
+            inner_udp_remote
         }
-
-        for peer in peers {
-            self.write(bytes::Bytes::copy_from_slice(&serialized_packet), peer)
-                .await
-        }
-    }
-
-    async fn udp_handle_received(
-        &mut self,
-        recieved_bytes: BytesMut,
-        addr: SocketAddr,
-        traffic_director: &RwLock<traffic_director::DirectorType>,
-    ) -> Option<Packet> {
-        let bincode_config = bincode::options()
-            .with_varint_encoding()
-            .allow_trailing_bytes();
-
-        let deserialized_packet: Option<Packet> =
-            match bincode_config.deserialize::<Messages>(&recieved_bytes) {
-                Ok(decoded) => match decoded {
-                    Messages::Packet(pkt) => Some(pkt),
-                    Messages::Keepalive(keepalive) => {
-                        println!(
-                            "Received keepalive msg from: {:?}, ID: {}",
-                            addr, keepalive.peer_id
-                        );
-                        let mut peer_list_write_lock = self.peer_list.write().await;
-
-                        peer_list_write_lock.add_peer(keepalive.peer_id, addr);
-
-                        let mut td_lock = traffic_director.write().await;
-
-                        match &mut *td_lock {
-                            traffic_director::DirectorType::Layer2(_td) => {}
-                            traffic_director::DirectorType::Layer3(td) => {
-                                if let Some(tun_ip) = keepalive.tun_ip {
-                                    let tun_ip = IpAddr::V4(tun_ip);
-                                    td.insert_route(keepalive.peer_id, tun_ip);
-                                }
-                            }
-                        }
-
-                        None
-                    }
-                },
-                Err(err) => {
-                    // If we receive garbage, simply throw it away and continue.
-                    println!("Unable do deserialize packet. Got error: {}", err);
-                    println!("{:?}", recieved_bytes);
-                    None
-                }
-            };
-
-        deserialized_packet
     }
 }
 
