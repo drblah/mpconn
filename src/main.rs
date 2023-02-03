@@ -45,14 +45,14 @@ struct Args {
     debug: bool
 }
 
-async fn await_remotes_receive(remotes: &mut Vec<Box<dyn AsyncRemote>>, peer_list: &RwLock<PeerList>, traffic_director: &RwLock<traffic_director::DirectorType>) -> (Option<Packet>, String) {
+async fn await_remotes_receive(remotes: &mut Vec<Box<dyn AsyncRemote>>, traffic_director: &RwLock<traffic_director::DirectorType>) -> (Option<Packet>, String) {
     let futures = FuturesUnordered::new();
     let mut interfaces = Vec::new();
 
     for remote in remotes {
         interfaces.push(remote.get_interface());
 
-        futures.push(remote.read(peer_list, traffic_director).boxed());
+        futures.push(remote.read(traffic_director).boxed());
     }
 
     let (item_resolved, ready_future_index, _remaining_futures) = select_all(futures).await;
@@ -171,7 +171,7 @@ async fn main() {
     loop {
         tokio::select! {
 
-            (socket_result, receiver_interface) = await_remotes_receive(&mut remotes, &peer_list, &traffic_director) => {
+            (socket_result, receiver_interface) = await_remotes_receive(&mut remotes, &traffic_director) => {
 
                 match settings.reorder {
                     true => {
