@@ -10,6 +10,7 @@ use lz4_flex::{compress_prepend_size, decompress_size_prepended};
 use socket2::{Domain, Socket, Type};
 use std::net::{IpAddr, UdpSocket as std_udp};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::sync::RwLock;
 use tokio_util::codec::BytesCodec;
@@ -23,7 +24,7 @@ pub trait AsyncRemote {
         peer_list: &RwLock<PeerList>,
         traffic_director: &RwLock<DirectorType>,
     ) -> Option<Packet>;
-    async fn keepalive(&mut self, peer_list: &mut PeerList);
+    async fn keepalive(&mut self);
     fn get_interface(&self) -> String;
 }
 
@@ -33,6 +34,7 @@ pub struct UDPRemote {
     tun_ip: Option<Ipv4Addr>,
     input_stream: SplitStream<UdpFramed<BytesCodec>>,
     output_stream: SplitSink<UdpFramed<BytesCodec>, (Bytes, SocketAddr)>,
+    peer_list: Arc<RwLock<PeerList>>
 }
 
 pub struct UDPLz4Remote {
@@ -41,6 +43,7 @@ pub struct UDPLz4Remote {
     tun_ip: Option<Ipv4Addr>,
     input_stream: SplitStream<UdpFramed<BytesCodec>>,
     output_stream: SplitSink<UdpFramed<BytesCodec>, (Bytes, SocketAddr)>,
+    peer_list: Arc<RwLock<PeerList>>
 }
 
 
@@ -76,8 +79,8 @@ impl AsyncRemote for UDPRemote {
         }
     }
 
-    async fn keepalive(&mut self, peer_list: &mut PeerList) {
-        self.udp_keepalive(peer_list).await
+    async fn keepalive(&mut self) {
+        self.udp_keepalive().await
     }
 
     fn get_interface(&self) -> String {
@@ -92,6 +95,7 @@ impl UDPRemote {
         listen_port: u16,
         peer_id: u16,
         tun_ip: Option<Ipv4Addr>,
+        peer_list: Arc<RwLock<PeerList>>
     ) -> UDPRemote {
         let socket = UdpFramed::new(
             make_socket(&iface, listen_addr, listen_port),
@@ -106,10 +110,11 @@ impl UDPRemote {
             tun_ip,
             input_stream: reader,
             output_stream: writer,
+            peer_list
         }
     }
 
-    async fn udp_keepalive(&mut self, peer_list: &mut PeerList) {
+    async fn udp_keepalive(&mut self) {
         let bincode_config = bincode::options()
             .with_varint_encoding()
             .allow_trailing_bytes();
@@ -123,7 +128,14 @@ impl UDPRemote {
             .serialize(&Messages::Keepalive(keepalive_message))
             .unwrap();
 
-        for peer in peer_list.get_all_connections() {
+        let peers: Vec<SocketAddr>;
+
+        {
+            let peer_list_read_lock = self.peer_list.read().await;
+            peers = peer_list_read_lock.get_all_connections();
+        }
+
+        for peer in peers {
             self.write(bytes::Bytes::copy_from_slice(&serialized_packet), peer)
                 .await
         }
@@ -159,8 +171,8 @@ impl AsyncRemote for UDPLz4Remote {
         }
     }
 
-    async fn keepalive(&mut self, peer_list: &mut PeerList) {
-        self.udp_keepalive(peer_list).await
+    async fn keepalive(&mut self) {
+        self.udp_keepalive().await
     }
 
     fn get_interface(&self) -> String {
@@ -175,7 +187,8 @@ impl UDPLz4Remote {
         listen_port: u16,
         peer_id: u16,
         tun_ip: Option<Ipv4Addr>,
-    ) -> UDPRemote {
+        peer_list: Arc<RwLock<PeerList>>,
+    ) -> UDPLz4Remote {
         let socket = UdpFramed::new(
             make_socket(&iface, listen_addr, listen_port),
             BytesCodec::new(),
@@ -183,16 +196,17 @@ impl UDPLz4Remote {
 
         let (writer, reader) = socket.split();
 
-        UDPRemote {
+        UDPLz4Remote {
             interface: iface,
             peer_id,
             tun_ip,
             input_stream: reader,
             output_stream: writer,
+            peer_list,
         }
     }
 
-    async fn udp_keepalive(&mut self, peer_list: &mut PeerList) {
+    async fn udp_keepalive(&mut self) {
         let bincode_config = bincode::options()
             .with_varint_encoding()
             .allow_trailing_bytes();
@@ -206,7 +220,14 @@ impl UDPLz4Remote {
             .serialize(&Messages::Keepalive(keepalive_message))
             .unwrap();
 
-        for peer in peer_list.get_all_connections() {
+        let peers: Vec<SocketAddr>;
+
+        {
+            let peer_list_read_lock = self.peer_list.read().await;
+            peers = peer_list_read_lock.get_all_connections();
+        }
+
+        for peer in peers {
             self.write(bytes::Bytes::copy_from_slice(&serialized_packet), peer)
                 .await
         }

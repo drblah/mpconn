@@ -21,6 +21,7 @@ use tokio::fs::File as tokioFile;
 
 use simplelog::*;
 use std::fs::File;
+use std::sync::Arc;
 use crate::sequencer::Sequencer;
 use crate::settings::RemoteTypes;
 
@@ -113,6 +114,8 @@ async fn main() {
 
     info!("Using config: {:?}", settings);
 
+    let peer_list = Arc::new(RwLock::new(PeerList::new(Some(settings.peers.clone()))));
+
     let mut remotes: Vec<Box<dyn AsyncRemote>> = Vec::new();
 
     for dev in &settings.remotes {
@@ -125,12 +128,12 @@ async fn main() {
         match dev {
             RemoteTypes::UDP { iface, listen_addr, listen_port } => {
                 remotes.push(
-                    Box::new(UDPRemote::new(iface.to_string(), *listen_addr, *listen_port, settings.peer_id, tun_ip))
+                    Box::new(UDPRemote::new(iface.to_string(), *listen_addr, *listen_port, settings.peer_id, tun_ip, peer_list.clone()))
                 );
             },
             RemoteTypes::UDPLz4 { iface, listen_addr, listen_port } => {
                 remotes.push(
-                    Box::new(UDPLz4Remote::new(iface.to_string(), *listen_addr, *listen_port, settings.peer_id, tun_ip))
+                    Box::new(UDPLz4Remote::new(iface.to_string(), *listen_addr, *listen_port, settings.peer_id, tun_ip, peer_list.clone()))
                 )
             }
         }
@@ -158,7 +161,6 @@ async fn main() {
     let mut tx_counter: usize = 0;
     let mut rx_counter: usize = 0;
 
-    let peer_list = RwLock::new(PeerList::new(Some(settings.peers)));
     let mut sequencer = Sequencer::new(Duration::from_millis(3));
 
     let mut maintenance_interval = time::interval(Duration::from_secs(5));
@@ -310,9 +312,8 @@ async fn main() {
             }
 
             _ = keepalive_interval.tick() => {
-                let mut peer_list_write_lock = peer_list.write().await;
                 for remote in &mut remotes {
-                    remote.keepalive(&mut peer_list_write_lock).await
+                    remote.keepalive().await
                 }
             }
 
