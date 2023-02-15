@@ -159,7 +159,6 @@ async fn main() {
     let mut tun_buf = BytesMut::with_capacity(65535);
 
     let mut tx_counter: usize = 0;
-    let mut rx_counter: usize = 0;
 
     let mut sequencer = Sequencer::new(Duration::from_millis(3));
 
@@ -173,71 +172,36 @@ async fn main() {
 
             (socket_result, receiver_interface) = await_remotes_receive(&mut remotes, &traffic_director) => {
 
-                match settings.reorder {
-                    true => {
-                        if let Some(packet) = socket_result {
-                            if packet.seq >= sequencer.next_seq && args.debug {
-                                if let Some(if_log) = &mut interface_logger {
-                                    write_interface_log(if_log, &receiver_interface, packet.seq).await;
-                                }
-                            }
-
-                            sequencer.insert_packet(packet);
-
-                            while sequencer.have_next_packet() {
-
-                                if let Some(next_packet) = sequencer.get_next_packet() {
-                                    let mut output = BytesMut::from(next_packet.bytes.as_slice());
-
-                                    let mut td_lock = traffic_director.write().await;
-
-                                    match &mut *td_lock {
-                                        traffic_director::DirectorType::Layer2(td) => {
-                                            td.learn_path(next_packet.peer_id, &output);
-                                        },
-                                        traffic_director::DirectorType::Layer3(_td) => {
-                                        }
-                                    }
-
-
-                                    local.write(&mut output).await;
-                                }
+                    if let Some(packet) = socket_result {
+                        if packet.seq >= sequencer.next_seq && args.debug {
+                            if let Some(if_log) = &mut interface_logger {
+                                write_interface_log(if_log, &receiver_interface, packet.seq).await;
                             }
                         }
-                    }
 
-                    false => {
-                        if let Some(packet) = socket_result {
-                            if packet.seq > rx_counter {
-                                if args.debug {
-                                    if let Some(if_log) = &mut interface_logger {
-                                        write_interface_log(if_log, &receiver_interface, packet.seq).await;
-                                    }
+                        sequencer.insert_packet(packet);
 
+                        while sequencer.have_next_packet() {
 
-                                }
-
-                                rx_counter = packet.seq;
-                                let mut output = BytesMut::from(packet.bytes.as_slice());
+                            if let Some(next_packet) = sequencer.get_next_packet() {
+                                let mut output = BytesMut::from(next_packet.bytes.as_slice());
 
                                 let mut td_lock = traffic_director.write().await;
 
                                 match &mut *td_lock {
-                                        traffic_director::DirectorType::Layer2(td) => {
-                                            td.learn_path(packet.peer_id, &output);
-                                        },
-                                        traffic_director::DirectorType::Layer3(_td) => {
-                                        }
+                                    traffic_director::DirectorType::Layer2(td) => {
+                                        td.learn_path(next_packet.peer_id, &output);
+                                    },
+                                    traffic_director::DirectorType::Layer3(_td) => {
                                     }
+                                }
+
 
                                 local.write(&mut output).await;
                             }
                         }
                     }
                 }
-
-
-            }
 
             _tun_result = local.read(&mut tun_buf) => {
 
