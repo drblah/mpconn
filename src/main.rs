@@ -22,7 +22,6 @@ use tokio::fs::File as tokioFile;
 use simplelog::*;
 use std::fs::File;
 use std::sync::Arc;
-use crate::sequencer::Sequencer;
 use crate::settings::RemoteTypes;
 
 mod async_pcap;
@@ -79,6 +78,7 @@ async fn write_interface_log(if_log: &mut BufWriter<tokioFile>, receiver_interfa
     let log_string = format!("{},{},{}\n", time_stamp, sequence_number, receiver_interface);
     if_log.write_all(log_string.as_ref()).await.unwrap();
 }
+
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -158,9 +158,9 @@ async fn main() {
 
     let mut tun_buf = BytesMut::with_capacity(65535);
 
-    let mut tx_counter: usize = 0;
+    //let mut tx_counter: usize = 0;
 
-    let mut sequencer = Sequencer::new(Duration::from_millis(3));
+    //let mut sequencer = Sequencer::new(Duration::from_millis(3));
 
     let mut maintenance_interval = time::interval(Duration::from_secs(5));
     let mut keepalive_interval = time::interval(Duration::from_secs(settings.keep_alive_interval));
@@ -173,33 +173,39 @@ async fn main() {
             (socket_result, receiver_interface) = await_remotes_receive(&mut remotes, &traffic_director) => {
 
                     if let Some(packet) = socket_result {
-                        if packet.seq >= sequencer.next_seq && args.debug {
-                            if let Some(if_log) = &mut interface_logger {
-                                write_interface_log(if_log, &receiver_interface, packet.seq).await;
-                            }
-                        }
+                        let mut peer_list_lock = peer_list.write().await;
+                        if let Some(ref mut peer_sequencer) = peer_list_lock.get_peer_sequencer(packet.peer_id) {
 
-                        sequencer.insert_packet(packet);
-
-                        while sequencer.have_next_packet() {
-
-                            if let Some(next_packet) = sequencer.get_next_packet() {
-                                let mut output = BytesMut::from(next_packet.bytes.as_slice());
-
-                                let mut td_lock = traffic_director.write().await;
-
-                                match &mut *td_lock {
-                                    traffic_director::DirectorType::Layer2(td) => {
-                                        td.learn_path(next_packet.peer_id, &output);
-                                    },
-                                    traffic_director::DirectorType::Layer3(_td) => {
-                                    }
+                            if packet.seq >= peer_sequencer.next_seq && args.debug {
+                                if let Some(if_log) = &mut interface_logger {
+                                    write_interface_log(if_log, &receiver_interface, packet.seq).await;
                                 }
+                            }
+
+                            peer_sequencer.insert_packet(packet);
+
+                            while peer_sequencer.have_next_packet() {
+
+                                if let Some(next_packet) = peer_sequencer.get_next_packet() {
+                                    let mut output = BytesMut::from(next_packet.bytes.as_slice());
+
+                                    let mut td_lock = traffic_director.write().await;
+
+                                    match &mut *td_lock {
+                                        traffic_director::DirectorType::Layer2(td) => {
+                                            td.learn_path(next_packet.peer_id, &output);
+                                        },
+                                        traffic_director::DirectorType::Layer3(_td) => {
+                                        }
+                                    }
 
 
-                                local.write(&mut output).await;
+                                    local.write(&mut output).await;
+                                }
                             }
                         }
+
+
                     }
                 }
 
@@ -209,27 +215,46 @@ async fn main() {
                 match &*td_lock {
                     traffic_director::DirectorType::Layer2(td) => {
                         if let Some(destination_peer) = td.get_path(&tun_buf) {
-                            let packet = messages::Packet{
-                                seq: tx_counter,
-                                peer_id: settings.peer_id,
-                                bytes: tun_buf[..].to_vec()
-                            };
-                            tx_counter += 1;
-
-                            let serialized_packet = bincode_config.serialize(&Messages::Packet(packet)).unwrap();
-
-                            //let peer_id = traffic_director.destination_to_peer()
-                            let peer_list_read_lock = peer_list.read().await;
-
                             match destination_peer {
                                 traffic_director::Path::Peer(peer_id) => {
-                                    for peer in peer_list_read_lock.get_peer_connections(peer_id) {
+                                    let mut peer_list_write_lock = peer_list.write().await;
+                                    let tx_counter = peer_list_write_lock.get_peer_tx_counter(peer_id);
+
+                                    let packet = messages::Packet{
+                                        seq: tx_counter,
+                                        peer_id: settings.peer_id,
+                                        bytes: tun_buf[..].to_vec()
+                                    };
+
+                                    let serialized_packet = bincode_config.serialize(&Messages::Packet(packet)).unwrap();
+
+                                    peer_list_write_lock.increment_peer_tx_counter(peer_id);
+
+                                    for peer in peer_list_write_lock.get_peer_connections(peer_id) {
                                         await_remotes_send(&mut remotes, bytes::Bytes::copy_from_slice(&serialized_packet), peer).await;
                                     }
                                 }
                                 traffic_director::Path::Broadcast => {
-                                    for peer in peer_list_read_lock.get_all_connections() {
-                                        await_remotes_send(&mut remotes, bytes::Bytes::copy_from_slice(&serialized_packet), peer).await;
+                                    // Increment all tx counters since we are broadcasting to all
+                                    // known peers
+                                    let mut peer_list_write_lock = peer_list.write().await;
+
+                                    for peer_id in peer_list_write_lock.get_peer_ids() {
+                                        let tx_counter = peer_list_write_lock.get_peer_tx_counter(peer_id);
+
+                                        let packet = messages::Packet{
+                                            seq: tx_counter,
+                                            peer_id: settings.peer_id,
+                                            bytes: tun_buf[..].to_vec()
+                                        };
+
+                                        let serialized_packet = bincode_config.serialize(&Messages::Packet(packet)).unwrap();
+
+                                        peer_list_write_lock.increment_peer_tx_counter(peer_id);
+
+                                        for peer_socketaddr in peer_list_write_lock.get_peer_connections(peer_id) {
+                                            await_remotes_send(&mut remotes, bytes::Bytes::copy_from_slice(&serialized_packet), peer_socketaddr).await;
+                                        }
                                     }
                                 }
                             }
@@ -238,19 +263,22 @@ async fn main() {
                     },
                     traffic_director::DirectorType::Layer3(td) => {
                         if let Some(destination_peer) = td.get_route(&tun_buf) {
+
+                            let mut peer_list_write_lock = peer_list.write().await;
+                            let tx_counter = peer_list_write_lock.get_peer_tx_counter(destination_peer);
+
                             let packet = messages::Packet{
                                 seq: tx_counter,
                                 peer_id: settings.peer_id,
                                 bytes: tun_buf[..].to_vec()
                             };
-                            tx_counter += 1;
 
                             let serialized_packet = bincode_config.serialize(&Messages::Packet(packet)).unwrap();
 
-                            let peer_list_read_lock = peer_list.read().await;
+                            peer_list_write_lock.increment_peer_tx_counter(destination_peer);
 
-                            for peer in peer_list_read_lock.get_peer_connections(destination_peer) {
-                                await_remotes_send(&mut remotes, bytes::Bytes::copy_from_slice(&serialized_packet), peer).await;
+                            for peer_socketaddr in peer_list_write_lock.get_peer_connections(destination_peer) {
+                                await_remotes_send(&mut remotes, bytes::Bytes::copy_from_slice(&serialized_packet), peer_socketaddr).await;
                             }
                         }
                     }
@@ -272,7 +300,17 @@ async fn main() {
                     }
                 }
 
-                println!("Sequencer packet queue length: {}", sequencer.get_queue_length());
+                for peer_id in peer_list_write_lock.get_peer_ids() {
+                    if let Some(peer_sequencer) = peer_list_write_lock.get_peer_sequencer(peer_id) {
+                        println!("Sequencer packet queue length for peer: {} - {} packets",
+                            peer_id,
+                            peer_sequencer.get_queue_length()
+                        );
+                    }
+
+                }
+
+
             }
 
             _ = keepalive_interval.tick() => {
@@ -281,6 +319,8 @@ async fn main() {
                 }
             }
 
+            //TODO: Find a way to do this sequencer deadline now that each peer has its own sequencer
+            /*
             _ = sequencer.tick() => {
                     while sequencer.have_next_packet() {
 
@@ -290,6 +330,8 @@ async fn main() {
                         }
                     }
             }
+
+             */
 
         }
     }
