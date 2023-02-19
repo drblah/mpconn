@@ -10,7 +10,7 @@ use std::time::{Duration, SystemTime};
 use bincode::Options;
 
 use crate::messages::{Messages, Packet};
-use crate::peer_list::PeerList;
+use crate::peer_list::{PeerList};
 use crate::remote::{AsyncRemote, UDPLz4Remote, UDPRemote};
 use clap::Parser;
 use futures::stream::FuturesUnordered;
@@ -164,6 +164,7 @@ async fn main() {
 
     let mut maintenance_interval = time::interval(Duration::from_secs(5));
     let mut keepalive_interval = time::interval(Duration::from_secs(settings.keep_alive_interval));
+    let mut global_sequencer_interval = time::interval(Duration::from_millis(1));
 
     let bincode_config = bincode::options().with_varint_encoding().allow_trailing_bytes();
 
@@ -319,19 +320,28 @@ async fn main() {
                 }
             }
 
-            //TODO: Find a way to do this sequencer deadline now that each peer has its own sequencer
-            /*
-            _ = sequencer.tick() => {
-                    while sequencer.have_next_packet() {
+            _ = global_sequencer_interval.tick() => {
+                let mut peer_list_write_lock = peer_list.write().await;
 
-                        if let Some(next_packet) = sequencer.get_next_packet() {
-                            let mut output = BytesMut::from(next_packet.bytes.as_slice());
-                            local.write(&mut output).await;
+                for peer_id in peer_list_write_lock.get_peer_ids() {
+                    if let Some(peer_sequencer) = peer_list_write_lock.get_peer_sequencer(peer_id) {
+                        if peer_sequencer.is_deadline_exceeded() {
+                            peer_sequencer.advance_queue();
+
+                            while peer_sequencer.have_next_packet() {
+                                if let Some(next_packet) = peer_sequencer.get_next_packet() {
+                                    let mut output = BytesMut::from(next_packet.bytes.as_slice());
+                                    local.write(&mut output).await;
+                                }
                         }
-                    }
-            }
+                        }
 
-             */
+                    }
+
+                }
+
+
+            }
 
         }
     }
