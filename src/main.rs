@@ -22,6 +22,7 @@ use tokio::fs::File as tokioFile;
 use simplelog::*;
 use std::fs::File;
 use std::sync::Arc;
+use crate::internal_messages::IncomingPacket;
 use crate::settings::RemoteTypes;
 
 mod async_pcap;
@@ -32,6 +33,7 @@ mod remote;
 mod settings;
 mod sequencer;
 mod traffic_director;
+mod internal_messages;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
@@ -44,19 +46,16 @@ struct Args {
     debug: bool
 }
 
-async fn await_remotes_receive(remotes: &mut Vec<Box<dyn AsyncRemote>>, traffic_director: &RwLock<traffic_director::DirectorType>) -> (Option<Packet>, String) {
+async fn await_remotes_receive(remotes: &mut Vec<Box<dyn AsyncRemote>>, traffic_director: &RwLock<traffic_director::DirectorType>) -> Option<IncomingPacket> {
     let mut futures = Vec::new();
-    let mut interfaces = Vec::new();
 
     for remote in remotes {
-        interfaces.push(remote.get_interface());
-
         futures.push(remote.read(traffic_director).boxed());
     }
 
-    let (item_resolved, ready_future_index, _remaining_futures) = select_all(futures).await;
+    let (item_resolved, _ready_future_index, _remaining_futures) = select_all(futures).await;
 
-    (item_resolved, interfaces[ready_future_index].clone())
+    item_resolved
 }
 
 async fn await_remotes_send(remotes: &mut Vec<Box<dyn AsyncRemote>>, packet: bytes::Bytes, target: SocketAddr) {
@@ -171,19 +170,19 @@ async fn main() {
     loop {
         tokio::select! {
 
-            (socket_result, receiver_interface) = await_remotes_receive(&mut remotes, &traffic_director) => {
+            socket_result = await_remotes_receive(&mut remotes, &traffic_director) => {
 
-                    if let Some(packet) = socket_result {
+                    if let Some(incomming_packet) = socket_result {
                         let mut peer_list_lock = peer_list.write().await;
-                        if let Some(ref mut peer_sequencer) = peer_list_lock.get_peer_sequencer(packet.peer_id) {
+                        if let Some(ref mut peer_sequencer) = peer_list_lock.get_peer_sequencer(incomming_packet.packet.peer_id) {
 
-                            if packet.seq >= peer_sequencer.next_seq && args.debug {
+                            if incomming_packet.packet.seq >= peer_sequencer.next_seq && args.debug {
                                 if let Some(if_log) = &mut interface_logger {
-                                    write_interface_log(if_log, &receiver_interface, packet.seq).await;
+                                    write_interface_log(if_log, incomming_packet.receiver_interface.as_str(), incomming_packet.packet.seq).await;
                                 }
                             }
 
-                            peer_sequencer.insert_packet(packet);
+                            peer_sequencer.insert_packet(incomming_packet.packet);
 
                             while peer_sequencer.have_next_packet() {
 

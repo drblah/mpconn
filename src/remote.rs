@@ -15,6 +15,7 @@ use tokio::net::UdpSocket;
 use tokio::sync::RwLock;
 use tokio_util::codec::BytesCodec;
 use tokio_util::udp::UdpFramed;
+use crate::internal_messages::IncomingPacket;
 
 #[async_trait]
 pub trait AsyncRemote {
@@ -22,7 +23,7 @@ pub trait AsyncRemote {
     async fn read(
         &mut self,
         traffic_director: &RwLock<DirectorType>,
-    ) -> Option<Packet>;
+    ) -> Option<IncomingPacket>;
     async fn keepalive(&mut self);
     fn get_interface(&self) -> String;
 }
@@ -61,7 +62,7 @@ impl AsyncRemote for UDPRemote {
     async fn read(
         &mut self,
         traffic_director: &RwLock<DirectorType>,
-    ) -> Option<Packet> {
+    ) -> Option<IncomingPacket> {
         let outcome = self.input_stream.next().await.unwrap();
 
         match outcome {
@@ -139,7 +140,7 @@ impl UDPRemote {
         recieved_bytes: BytesMut,
         addr: SocketAddr,
         traffic_director: &RwLock<traffic_director::DirectorType>,
-    ) -> Option<Packet> {
+    ) -> Option<IncomingPacket> {
         let bincode_config = bincode::options()
             .with_varint_encoding()
             .allow_trailing_bytes();
@@ -180,7 +181,15 @@ impl UDPRemote {
                 }
             };
 
-        deserialized_packet
+        if let Some(packet) = deserialized_packet {
+            Some(IncomingPacket {
+                receiver_interface: self.interface.clone(),
+                received_from: addr,
+                packet,
+            })
+        } else {
+            None
+        }
     }
 }
 
@@ -194,7 +203,7 @@ impl AsyncRemote for UDPLz4Remote {
             .unwrap()
     }
 
-    async fn read(&mut self, traffic_director: &RwLock<DirectorType>) -> Option<Packet> {
+    async fn read(&mut self, traffic_director: &RwLock<DirectorType>) -> Option<IncomingPacket> {
         let outcome = self.inner_udp_remote.input_stream.next().await.unwrap();
 
         match outcome {
