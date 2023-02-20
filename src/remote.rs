@@ -1,3 +1,4 @@
+use std::io::Error;
 use crate::messages::{Keepalive, Packet};
 use crate::traffic_director::DirectorType;
 use crate::{traffic_director, Messages, PeerList};
@@ -11,6 +12,7 @@ use socket2::{Domain, Socket, Type};
 use std::net::{IpAddr, UdpSocket as std_udp};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
+use pcap::Device;
 use tokio::net::UdpSocket;
 use tokio::sync::RwLock;
 use tokio_util::codec::BytesCodec;
@@ -85,11 +87,11 @@ impl AsyncRemote for UDPRemote {
 impl UDPRemote {
     pub fn new(
         iface: String,
-        listen_addr: Ipv4Addr,
+        listen_addr: Option<Ipv4Addr>,
         listen_port: u16,
         peer_id: u16,
         tun_ip: Option<Ipv4Addr>,
-        peer_list: Arc<RwLock<PeerList>>
+        peer_list: Arc<RwLock<PeerList>>,
     ) -> UDPRemote {
         let socket = UdpFramed::new(
             make_socket(&iface, listen_addr, listen_port),
@@ -233,7 +235,7 @@ impl AsyncRemote for UDPLz4Remote {
 impl UDPLz4Remote {
     pub fn new(
         iface: String,
-        listen_addr: Ipv4Addr,
+        listen_addr: Option<Ipv4Addr>,
         listen_port: u16,
         peer_id: u16,
         tun_ip: Option<Ipv4Addr>,
@@ -261,7 +263,42 @@ impl UDPLz4Remote {
     }
 }
 
-fn make_socket(interface: &str, local_address: Ipv4Addr, local_port: u16) -> UdpSocket {
+fn get_device_address(interface: &str) -> Result<Ipv4Addr, std::io::Error> {
+    let device = Device::from(interface);
+
+    println!("Device: {}, addresses: {:?}", interface, device);
+
+    for address in &device.addresses {
+        if let IpAddr::V4(addr) = address.addr {
+            return Ok(addr)
+        }
+    }
+
+    Err(Error::from(std::io::ErrorKind::AddrNotAvailable))
+}
+
+pub fn interface_to_ipaddr(interface: &str) -> Result<Ipv4Addr, std::io::Error> {
+    let interfaces = pnet_datalink::interfaces();
+    let interface = interfaces
+        .into_iter()
+        .find(|iface| iface.name == interface)
+        .ok_or_else(|| std::io::ErrorKind::NotFound)?;
+
+    let ipaddr = interface
+        .ips
+        .into_iter()
+        .find(|ip| ip.is_ipv4())
+        .ok_or_else(|| std::io::ErrorKind::AddrNotAvailable)?;
+
+
+    if let IpAddr::V4(ipaddr) = ipaddr.ip() {
+        return Ok(ipaddr)
+    }
+
+    Err(Error::from(std::io::ErrorKind::AddrNotAvailable))
+}
+
+fn make_socket(interface: &str, local_address: Option<Ipv4Addr>, local_port: u16) -> UdpSocket {
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, None).unwrap();
 
     if let Err(err) = socket.bind_device(Some(interface.as_bytes())) {
@@ -271,6 +308,15 @@ fn make_socket(interface: &str, local_address: Ipv4Addr, local_port: u16) -> Udp
             panic!("unexpected error binding device: {}", err);
         }
     }
+
+    let local_address = match local_address {
+        Some(local_address) => {
+            local_address
+        }
+        None => {
+            interface_to_ipaddr(interface).unwrap()
+        }
+    };
 
     let address = SocketAddrV4::new(local_address, local_port);
     socket.bind(&address.into()).unwrap();

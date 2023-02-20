@@ -18,12 +18,12 @@ pub enum LocalTypes {
 pub enum RemoteTypes {
     UDP {
         iface: String,
-        listen_addr: Ipv4Addr,
+        listen_addr: Option<Ipv4Addr>,
         listen_port: u16,
     },
     UDPLz4 {
         iface: String,
-        listen_addr: Ipv4Addr,
+        listen_addr: Option<Ipv4Addr>,
         listen_port: u16,
     },
 }
