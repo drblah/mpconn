@@ -45,7 +45,7 @@ struct Args {
 }
 
 async fn await_remotes_receive(remotes: &mut Vec<Box<dyn AsyncRemote>>, traffic_director: &RwLock<traffic_director::DirectorType>) -> (Option<Packet>, String) {
-    let futures = FuturesUnordered::new();
+    let mut futures = Vec::new();
     let mut interfaces = Vec::new();
 
     for remote in remotes {
