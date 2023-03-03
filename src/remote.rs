@@ -263,20 +263,6 @@ impl UDPLz4Remote {
     }
 }
 
-fn get_device_address(interface: &str) -> Result<Ipv4Addr, std::io::Error> {
-    let device = Device::from(interface);
-
-    println!("Device: {}, addresses: {:?}", interface, device);
-
-    for address in &device.addresses {
-        if let IpAddr::V4(addr) = address.addr {
-            return Ok(addr)
-        }
-    }
-
-    Err(Error::from(std::io::ErrorKind::AddrNotAvailable))
-}
-
 pub fn interface_to_ipaddr(interface: &str) -> Result<Ipv4Addr, std::io::Error> {
     let interfaces = pnet_datalink::interfaces();
     let interface = interfaces
