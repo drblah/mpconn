@@ -59,13 +59,9 @@ async fn await_remotes_receive(remotes: &mut Vec<Box<dyn AsyncRemote>>, traffic_
 }
 
 async fn await_remotes_send(remotes: &mut Vec<Box<dyn AsyncRemote>>, packet: bytes::Bytes, target: SocketAddr) {
-    let futures = FuturesUnordered::new();
-
     for remote in remotes {
-        futures.push(remote.write(packet.clone(), target))
+        remote.write(packet.clone(), target).await
     }
-
-    let _ = futures.collect::<Vec<_>>().await;
 }
 
 async fn maintenance(peer_list: &mut PeerList) {
