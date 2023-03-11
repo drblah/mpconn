@@ -2,5 +2,5 @@
 
 set -e
 
-(cd ../../ && cargo build --release)
+(cd ../../ && RUSTFLAGS=-g cargo build --release)
 cp ../../target/release/mpconn ./

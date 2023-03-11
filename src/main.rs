@@ -4,7 +4,7 @@ extern crate core;
 
 use bytes::BytesMut;
 use futures::future::select_all;
-use futures::{FutureExt, StreamExt};
+use futures::{FutureExt};
 use std::net::SocketAddr;
 use std::time::{Duration, SystemTime};
 use bincode::Options;
@@ -13,7 +13,6 @@ use crate::messages::{Messages, Packet};
 use crate::peer_list::{PeerList};
 use crate::remote::{AsyncRemote, UDPLz4Remote, UDPRemote};
 use clap::Parser;
-use futures::stream::FuturesUnordered;
 use tokio::sync::RwLock;
 use tokio::time;
 use tokio::io::{AsyncWriteExt, BufWriter};

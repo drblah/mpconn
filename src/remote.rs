@@ -12,7 +12,6 @@ use socket2::{Domain, Socket, Type};
 use std::net::{IpAddr, UdpSocket as std_udp};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
-use pcap::Device;
 use tokio::net::UdpSocket;
 use tokio::sync::RwLock;
 use tokio_util::codec::BytesCodec;
