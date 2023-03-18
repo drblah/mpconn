@@ -16,15 +16,16 @@ use tokio::net::UdpSocket;
 use tokio::sync::RwLock;
 use tokio_util::codec::BytesCodec;
 use tokio_util::udp::UdpFramed;
-use crate::internal_messages::IncomingPacket;
+use crate::internal_messages::{IncomingPacket, IncomingUnparsedPacket};
 
 #[async_trait]
-pub trait AsyncRemote {
+pub trait AsyncRemote: Send {
     async fn write(&mut self, buffer: Bytes, destination: SocketAddr);
     async fn read(
         &mut self,
         traffic_director: &RwLock<DirectorType>,
     ) -> Option<IncomingPacket>;
+    async fn read2(&mut self) -> Option<IncomingUnparsedPacket>;
     async fn keepalive(&mut self);
     fn get_interface(&self) -> String;
 }
@@ -35,11 +36,19 @@ pub struct UDPRemote {
     tun_ip: Option<Ipv4Addr>,
     input_stream: SplitStream<UdpFramed<BytesCodec>>,
     output_stream: SplitSink<UdpFramed<BytesCodec>, (Bytes, SocketAddr)>,
-    peer_list: Arc<RwLock<PeerList>>
+    peer_list: Arc<RwLock<PeerList>>,
+}
+
+pub struct DecopuledUDPremote {
+    interface: String,
+    peer_id: u16,
+    tun_ip: Option<Ipv4Addr>,
+    input_stream: SplitStream<UdpFramed<BytesCodec>>,
+    output_stream: SplitSink<UdpFramed<BytesCodec>, (Bytes, SocketAddr)>,
 }
 
 pub struct UDPLz4Remote {
-    inner_udp_remote: UDPRemote
+    inner_udp_remote: UDPRemote,
 }
 
 
@@ -71,6 +80,19 @@ impl AsyncRemote for UDPRemote {
                 self.udp_handle_received(recieved_bytes, addr, traffic_director).await
             }
             Err(e) => panic!("Failed to receive from UDP remote: {}", e),
+        }
+    }
+
+    async fn read2(&mut self) -> Option<IncomingUnparsedPacket> {
+        match self.input_stream.next().await.unwrap() {
+            Ok((received_bytes, adder)) => {
+                Some(IncomingUnparsedPacket {
+                    receiver_interface: self.interface.clone(),
+                    received_from: adder,
+                    bytes: received_bytes.to_vec(),
+                })
+            }
+            Err(e) => None,
         }
     }
 
@@ -194,6 +216,77 @@ impl UDPRemote {
     }
 }
 
+
+#[async_trait]
+impl AsyncRemote for DecopuledUDPremote {
+    async fn write(&mut self, buffer: Bytes, destination: SocketAddr) {
+        match self.output_stream.send((buffer, destination)).await {
+            Ok(_) => {}
+            Err(e) => match e.kind() {
+                std::io::ErrorKind::NetworkUnreachable => {
+                    println!("{} Network Unreachable", self.interface)
+                }
+                _ => panic!(
+                    "{} Encountered unhandled problem when sending: {:?}",
+                    self.interface, e
+                ),
+            },
+        }
+    }
+
+    async fn read(
+        &mut self,
+        traffic_director: &RwLock<DirectorType>,
+    ) -> Option<IncomingPacket> {
+        unimplemented!()
+    }
+
+    async fn read2(&mut self) -> Option<IncomingUnparsedPacket> {
+        match self.input_stream.next().await.unwrap() {
+            Ok((received_bytes, adder)) => {
+                Some(IncomingUnparsedPacket {
+                    receiver_interface: self.interface.clone(),
+                    received_from: adder,
+                    bytes: received_bytes.to_vec(),
+                })
+            }
+            Err(e) => None,
+        }
+    }
+
+    async fn keepalive(&mut self) {}
+
+    fn get_interface(&self) -> String {
+        self.interface.clone()
+    }
+}
+
+impl DecopuledUDPremote {
+    pub fn new(
+        iface: String,
+        listen_addr: Option<Ipv4Addr>,
+        listen_port: u16,
+        peer_id: u16,
+        tun_ip: Option<Ipv4Addr>,
+    ) -> DecopuledUDPremote {
+        let socket = UdpFramed::new(
+            make_socket(&iface, listen_addr, listen_port),
+            BytesCodec::new(),
+        );
+
+        let (writer, reader) = socket.split();
+
+        DecopuledUDPremote {
+            interface: iface,
+            peer_id,
+            tun_ip,
+            input_stream: reader,
+            output_stream: writer,
+        }
+    }
+}
+
+
 #[async_trait]
 impl AsyncRemote for UDPLz4Remote {
     async fn write(&mut self, buffer: Bytes, destination: SocketAddr) {
@@ -219,6 +312,19 @@ impl AsyncRemote for UDPLz4Remote {
                     .await
             }
             Err(e) => panic!("Failed to receive from UDP remote: {}", e),
+        }
+    }
+
+    async fn read2(&mut self) -> Option<IncomingUnparsedPacket> {
+        match self.inner_udp_remote.input_stream.next().await.unwrap() {
+            Ok((received_bytes, adder)) => {
+                Some(IncomingUnparsedPacket {
+                    receiver_interface: self.inner_udp_remote.interface.clone(),
+                    received_from: adder,
+                    bytes: received_bytes.to_vec(),
+                })
+            }
+            Err(e) => None,
         }
     }
 
