@@ -1,4 +1,4 @@
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 use bincode::config::{AllowTrailing, VarintEncoding, WithOtherIntEncoding, WithOtherTrailing};
 use bincode::{DefaultOptions, Options};
@@ -10,19 +10,24 @@ use tokio::task::JoinHandle;
 use crate::internal_messages::{IncomingUnparsedPacket, OutgoingUDPPacket};
 use crate::messages::{Keepalive, Messages};
 use crate::peer_list::{PeerList};
-use crate::{traffic_director};
-use crate::settings::LocalTypes;
+use crate::{settings, traffic_director};
+use crate::settings::{LocalTypes, SettingsFile};
 use crate::traffic_director::DirectorType;
+
+type BincodeSettings = WithOtherTrailing<WithOtherIntEncoding<DefaultOptions, VarintEncoding>, AllowTrailing>;
 
 struct ConnectionManager {
     tasks: Vec<JoinHandle<()>>,
 }
 
 impl ConnectionManager {
-    pub async fn new(udp_output_broadcast_to_remotes: broadcast::Sender<OutgoingUDPPacket>,
-                     mut raw_udp_from_remotes: mpsc::Receiver<IncomingUnparsedPacket>,
-                     mut packets_to_local: mpsc::Sender<Packet>,
-                     localtype: LocalTypes) -> ConnectionManager {
+    pub async fn new(
+        settings: SettingsFile,
+        mut udp_output_broadcast_to_remotes: broadcast::Sender<OutgoingUDPPacket>,
+        mut raw_udp_from_remotes: mpsc::Receiver<IncomingUnparsedPacket>,
+        mut packets_to_local: mpsc::Sender<Packet>,
+        localtype: LocalTypes) -> ConnectionManager
+    {
         let bincode_config = bincode::options()
             .with_varint_encoding()
             .allow_trailing_bytes();
@@ -43,6 +48,13 @@ impl ConnectionManager {
 
         let mut maintenance_interval = time::interval(Duration::from_secs(5));
         let mut global_sequencer_interval = time::interval(Duration::from_millis(1));
+        let mut keepalive_interval = time::interval(Duration::from_secs(10));
+
+        let own_peer_id = settings.peer_id;
+        let own_tun_ip = match &settings.local {
+            settings::LocalTypes::Layer3 { tun_ip } => Some(*tun_ip),
+            settings::LocalTypes::Layer2 { .. } => None
+        };
 
         let manager_task = tokio::spawn(async move {
             loop {
@@ -51,7 +63,7 @@ impl ConnectionManager {
                     // Await incoming packets from the transport layer. Aka Remotes
                     new_raw_udp_packet = raw_udp_from_remotes.recv() => {
 
-                        // Did we actually get apacket or a None?
+                        // Did we actually get a packet or a None?
                         // In case of None, it means the channel was closed and something
                         // Catastrophic is going one.
                         match new_raw_udp_packet {
@@ -107,6 +119,15 @@ impl ConnectionManager {
                             }
                         }
                     }
+
+                    _ = keepalive_interval.tick() => {
+                        Self::handle_keepalive(
+                            &bincode_config,
+                            own_peer_id,
+                            own_tun_ip,
+                            &mut udp_output_broadcast_to_remotes,
+                            &mut peer_list).await;
+                    }
             }
             }
         });
@@ -116,7 +137,7 @@ impl ConnectionManager {
         }
     }
 
-    async fn handle_udp_packet(bincode_config: &WithOtherTrailing<WithOtherIntEncoding<DefaultOptions, VarintEncoding>, AllowTrailing>,
+    async fn handle_udp_packet(bincode_config: &BincodeSettings,
                                raw_udp_packet: IncomingUnparsedPacket,
                                packets_to_local: &mut mpsc::Sender<Packet>,
                                peer_list: &mut PeerList,
@@ -200,6 +221,34 @@ impl ConnectionManager {
                     td.insert_route(keepalive_packet.peer_id, tun_ip);
                 }
             }
+        }
+    }
+
+    async fn handle_keepalive(
+        bincode_config: &BincodeSettings,
+        own_peer_id: u16,
+        own_tun_ip: Option<Ipv4Addr>,
+        udp_output_broadcast_to_remotes: &mut broadcast::Sender<OutgoingUDPPacket>,
+        peer_list: &mut PeerList)
+    {
+        let keepalive_message = Keepalive {
+            peer_id: own_peer_id,
+            tun_ip: own_tun_ip,
+        };
+
+        let serialized_packet = bincode_config
+            .serialize(&Messages::Keepalive(keepalive_message))
+            .unwrap();
+
+        let active_peer_sockets = peer_list.get_all_connections();
+
+        for socket in active_peer_sockets {
+            let outgoing_packet = OutgoingUDPPacket {
+                destination: socket,
+                packet_bytes: serialized_packet.clone(),
+            };
+
+            udp_output_broadcast_to_remotes.send(outgoing_packet).unwrap();
         }
     }
 }

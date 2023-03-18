@@ -15,7 +15,7 @@ pub struct IncomingUnparsedPacket {
     pub bytes: Vec<u8>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct OutgoingUDPPacket {
     pub destination: SocketAddr,
     pub packet_bytes: Vec<u8>,
