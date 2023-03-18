@@ -1,9 +1,10 @@
 use std::net::{IpAddr, SocketAddr};
+use std::time::Duration;
 use bincode::config::{AllowTrailing, VarintEncoding, WithOtherIntEncoding, WithOtherTrailing};
 use bincode::{DefaultOptions, Options};
 use bytes::BytesMut;
 use crate::messages::Packet;
-use tokio::select;
+use tokio::{select, time};
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use crate::internal_messages::{IncomingUnparsedPacket, OutgoingUDPPacket};
@@ -40,30 +41,51 @@ impl ConnectionManager {
             }
         };
 
+        let mut global_sequencer_interval = time::interval(Duration::from_millis(1));
 
         let manager_task = tokio::spawn(async move {
             loop {
                 select! {
-                new_raw_udp_packet = raw_udp_from_remotes.recv() => {
 
-                    // Did we actually get apacket or a None?
-                    // In case of None, it means the channel was closed and something
-                    // Catastrophic is going one.
-                    match new_raw_udp_packet {
-                        Some(new_raw_udp_packet) => {
-                            Self::handle_udp_packet(
-                                &bincode_config,
-                                new_raw_udp_packet,
-                                &mut packets_to_local,
-                                &mut peer_list,
-                                &mut traffic_director).await;
-                        }
-                        None => {
-                            panic!("ConnectionManager: raw_udp_from_remotes channel was closed");
+                    // Await incoming packets from the transport layer. Aka Remotes
+                    new_raw_udp_packet = raw_udp_from_remotes.recv() => {
+
+                        // Did we actually get apacket or a None?
+                        // In case of None, it means the channel was closed and something
+                        // Catastrophic is going one.
+                        match new_raw_udp_packet {
+                            Some(new_raw_udp_packet) => {
+                                Self::handle_udp_packet(
+                                    &bincode_config,
+                                    new_raw_udp_packet,
+                                    &mut packets_to_local,
+                                    &mut peer_list,
+                                    &mut traffic_director).await;
+                            }
+                            None => {
+                                panic!("ConnectionManager: raw_udp_from_remotes channel was closed");
+                            }
                         }
                     }
 
-                }
+                    _ = global_sequencer_interval.tick() => {
+                        // Sequencer timeout exceeded, we will now advance the sequencer queues
+                        // for each Peer and try to send out remaining packets
+                        for peer_id in peer_list.get_peer_ids() {
+                            if let Some(peer_sequencer) = peer_list.get_peer_sequencer(peer_id) {
+                                if peer_sequencer.is_deadline_exceeded() {
+                                    peer_sequencer.advance_queue();
+
+                                    while peer_sequencer.have_next_packet() {
+                                        if let Some(next_packet) = peer_sequencer.get_next_packet() {
+
+                                            packets_to_local.send(next_packet).await.unwrap()
+                                        }
+                                }
+                                }
+                            }
+                        }
+                    }
             }
             }
         });
@@ -81,7 +103,7 @@ impl ConnectionManager {
         match bincode_config.deserialize::<Messages>(&raw_udp_packet.bytes) {
             Ok(decoded) => match decoded {
                 Messages::Packet(pkt) => {
-                    Self::handle_incomming_packet(
+                    Self::handle_incoming_packet(
                         pkt,
                         packets_to_local,
                         peer_list,
@@ -94,7 +116,7 @@ impl ConnectionManager {
                         raw_udp_packet.received_from, keepalive.peer_id
                     );
 
-                    Self::handle_incomming_keepalive(
+                    Self::handle_incoming_keepalive(
                         keepalive,
                         raw_udp_packet.received_from,
                         peer_list,
@@ -110,7 +132,7 @@ impl ConnectionManager {
         };
     }
 
-    async fn handle_incomming_packet(
+    async fn handle_incoming_packet(
         packet: Packet,
         packets_to_local: &mut mpsc::Sender<Packet>,
         peer_list: &mut PeerList,
@@ -139,10 +161,10 @@ impl ConnectionManager {
         }
     }
 
-    fn handle_incomming_keepalive(keepalive_packet: Keepalive,
-                                  source: SocketAddr,
-                                  peer_list: &mut PeerList,
-                                  traffic_director: &mut DirectorType)
+    fn handle_incoming_keepalive(keepalive_packet: Keepalive,
+                                 source: SocketAddr,
+                                 peer_list: &mut PeerList,
+                                 traffic_director: &mut DirectorType)
     {
         peer_list.add_peer(
             keepalive_packet.peer_id,
