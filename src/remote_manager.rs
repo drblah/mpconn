@@ -14,14 +14,14 @@ struct RemoteManager {
 
 impl RemoteManager {
     // new takes a vector of Remotes, a tokio broadcast channel receiver, and a tokio mpsc channel sender.
-    pub fn new(settings: SettingsFile, broadcast_channel: &broadcast::Sender<OutgoingUDPPacket>, mpsc_channel: mpsc::Sender<IncomingUnparsedPacket>) -> Self {
+    pub fn new(settings: SettingsFile, udp_output_broadcast_to_remotes: &broadcast::Sender<OutgoingUDPPacket>, raw_udp_from_remotes: mpsc::Sender<IncomingUnparsedPacket>) -> Self {
         let mut tasks = Vec::new();
 
         for dev in &settings.remotes {
-            let mut bc = broadcast_channel.subscribe();
+            let mut bc = udp_output_broadcast_to_remotes.subscribe();
             let dev = dev.clone();
             let settings = settings.clone();
-            let mpsc_channel = mpsc_channel.clone();
+            let mpsc_channel = raw_udp_from_remotes.clone();
             let mut remote = Self::make_remote(dev.clone(), settings.clone());
 
             tasks.push(
