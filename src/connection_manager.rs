@@ -41,6 +41,7 @@ impl ConnectionManager {
             }
         };
 
+        let mut maintenance_interval = time::interval(Duration::from_secs(5));
         let mut global_sequencer_interval = time::interval(Duration::from_millis(1));
 
         let manager_task = tokio::spawn(async move {
@@ -83,6 +84,26 @@ impl ConnectionManager {
                                         }
                                 }
                                 }
+                            }
+                        }
+                    }
+
+                    _ = maintenance_interval.tick() => {
+                        peer_list.prune_stale_peers();
+
+                        // TODO: Flush interface_log if it is enabled
+                        //if args.debug {
+                        //    if let Some(if_log) = &mut interface_logger {
+                        //        if_log.flush().await.unwrap();
+                        //    }
+                        //}
+
+                        for peer_id in peer_list.get_peer_ids() {
+                            if let Some(peer_sequencer) = peer_list.get_peer_sequencer(peer_id) {
+                                println!("Sequencer packet queue length for peer: {} - {} packets",
+                                    peer_id,
+                                    peer_sequencer.get_queue_length()
+                                );
                             }
                         }
                     }
