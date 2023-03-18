@@ -34,6 +34,7 @@ mod sequencer;
 mod traffic_director;
 mod internal_messages;
 mod remote_manager;
+mod connection_manager;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
