@@ -7,13 +7,13 @@ use crate::remote::{AsyncRemote, DecopuledUDPremote, UDPLz4Remote, UDPRemote};
 use crate::settings;
 use crate::settings::{RemoteTypes, SettingsFile};
 
-struct RemoteManager {
-    remote_tasks: Vec<JoinHandle<()>>
+pub struct RemoteManager {
+    pub remote_tasks: Vec<JoinHandle<()>>,
 }
 
 
 impl RemoteManager {
-    // new takes a vector of Remotes, a tokio broadcast channel receiver, and a tokio mpsc channel sender.
+    // new takes a SettingsFile, a tokio broadcast channel receiver, and a tokio mpsc channel sender.
     pub fn new(settings: SettingsFile, udp_output_broadcast_to_remotes: &broadcast::Sender<OutgoingUDPPacket>, raw_udp_from_remotes: mpsc::Sender<IncomingUnparsedPacket>) -> Self {
         let mut tasks = Vec::new();
 
