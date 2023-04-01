@@ -16,8 +16,8 @@ use crate::traffic_director::DirectorType;
 
 type BincodeSettings = WithOtherTrailing<WithOtherIntEncoding<DefaultOptions, VarintEncoding>, AllowTrailing>;
 
-struct ConnectionManager {
-    tasks: Vec<JoinHandle<()>>,
+pub struct ConnectionManager {
+    pub tasks: Vec<JoinHandle<()>>,
 }
 
 impl ConnectionManager {
@@ -25,16 +25,16 @@ impl ConnectionManager {
         settings: SettingsFile,
         mut udp_output_broadcast_to_remotes: broadcast::Sender<OutgoingUDPPacket>,
         mut raw_udp_from_remotes: mpsc::Receiver<IncomingUnparsedPacket>,
-        mut packets_to_local: mpsc::Sender<Packet>,
+        mut packets_to_local: mpsc::Sender<Vec<u8>>,
         mut packets_from_local: mpsc::Receiver<Vec<u8>>,
-        localtype: LocalTypes) -> ConnectionManager
+    ) -> ConnectionManager
     {
         let bincode_config = bincode::options()
             .with_varint_encoding()
             .allow_trailing_bytes();
 
         let mut peer_list = PeerList::new(None);
-        let mut traffic_director = match localtype {
+        let mut traffic_director = match settings.local {
             LocalTypes::Layer2 { .. } => {
                 let td = traffic_director::Layer2Director::new();
 
@@ -112,7 +112,7 @@ impl ConnectionManager {
                                     while peer_sequencer.have_next_packet() {
                                         if let Some(next_packet) = peer_sequencer.get_next_packet() {
 
-                                            packets_to_local.send(next_packet).await.unwrap()
+                                            packets_to_local.send(next_packet.bytes).await.unwrap()
                                         }
                                 }
                                 }
@@ -159,7 +159,7 @@ impl ConnectionManager {
 
     async fn handle_udp_packet(bincode_config: &BincodeSettings,
                                raw_udp_packet: IncomingUnparsedPacket,
-                               packets_to_local: &mut mpsc::Sender<Packet>,
+                               packets_to_local: &mut mpsc::Sender<Vec<u8>>,
                                peer_list: &mut PeerList,
                                traffic_director: &mut DirectorType) {
         match bincode_config.deserialize::<Messages>(&raw_udp_packet.bytes) {
@@ -196,7 +196,7 @@ impl ConnectionManager {
 
     async fn handle_incoming_packet(
         packet: Packet,
-        packets_to_local: &mut mpsc::Sender<Packet>,
+        packets_to_local: &mut mpsc::Sender<Vec<u8>>,
         peer_list: &mut PeerList,
         traffic_director: &mut DirectorType)
     {
@@ -217,7 +217,7 @@ impl ConnectionManager {
                     }
 
 
-                    packets_to_local.send(next_packet).await.unwrap()
+                    packets_to_local.send(next_packet.bytes).await.unwrap()
                 }
             }
         }
