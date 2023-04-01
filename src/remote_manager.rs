@@ -1,10 +1,9 @@
 use bytes::Bytes;
 use tokio::select;
 use tokio::sync::{broadcast, mpsc};
-use tokio::sync::broadcast::error::RecvError;
 use tokio::task::JoinHandle;
-use crate::internal_messages::{IncomingPacket, IncomingUnparsedPacket, OutgoingUDPPacket};
-use crate::remote::{AsyncRemote, DecopuledUDPremote, UDPLz4Remote, UDPRemote};
+use crate::internal_messages::{IncomingUnparsedPacket, OutgoingUDPPacket};
+use crate::remote::{AsyncRemote, UDPremote, UDPLz4Remote};
 use crate::settings;
 use crate::settings::{RemoteTypes, SettingsFile};
 
@@ -42,7 +41,7 @@ impl RemoteManager {
 
                             }
 
-                            incoming = remote.read2() => {
+                            incoming = remote.read() => {
                                 let incoming = incoming.unwrap();
                                 mpsc_channel.send(incoming).await.unwrap();
                             }
@@ -69,7 +68,7 @@ impl RemoteManager {
 
         match dev {
             RemoteTypes::UDP { iface, listen_addr, listen_port } => {
-                Box::new(DecopuledUDPremote::new(iface.to_string(), listen_addr, listen_port, settings.peer_id, tun_ip))
+                Box::new(UDPremote::new(iface.to_string(), listen_addr, listen_port, settings.peer_id, tun_ip))
             },
             RemoteTypes::UDPLz4 { iface, listen_addr, listen_port } => {
                     todo!()
