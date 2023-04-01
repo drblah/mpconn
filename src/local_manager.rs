@@ -49,4 +49,10 @@ impl LocalManager {
             tasks: vec![manager_task]
         }
     }
+
+    pub async fn run(&mut self) {
+        for task in &mut self.tasks {
+            task.await.unwrap()
+        }
+    }
 }
