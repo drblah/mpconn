@@ -46,6 +46,12 @@ impl RemoteManager {
         Self { remote_tasks: tasks }
     }
 
+    pub async fn run(&mut self) {
+        for task in &mut self.remote_tasks {
+            task.await.unwrap()
+        }
+    }
+
     fn make_remote(dev: RemoteTypes, settings: SettingsFile) -> Box<dyn AsyncRemote> {
         let tun_ip = match &settings.local {
             settings::LocalTypes::Layer3 { tun_ip } => Some(*tun_ip),
