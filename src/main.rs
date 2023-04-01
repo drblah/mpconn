@@ -3,8 +3,7 @@
 extern crate log;
 extern crate core;
 
-use crate::messages::{Messages, Packet};
-use crate::peer_list::{PeerList};
+use crate::messages::{Packet};
 use clap::Parser;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task;

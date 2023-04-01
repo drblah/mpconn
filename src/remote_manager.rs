@@ -4,7 +4,6 @@ use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use crate::internal_messages::{IncomingUnparsedPacket, OutgoingUDPPacket};
 use crate::remote::{AsyncRemote, UDPremote, UDPLz4Remote};
-use crate::settings;
 use crate::settings::{RemoteTypes, SettingsFile};
 
 pub struct RemoteManager {
@@ -20,9 +19,8 @@ impl RemoteManager {
         for dev in &settings.remotes {
             let mut bc = udp_output_broadcast_to_remotes.subscribe();
             let dev = dev.clone();
-            let settings = settings.clone();
             let mpsc_channel = raw_udp_from_remotes.clone();
-            let mut remote = Self::make_remote(dev.clone(), settings.clone());
+            let mut remote = Self::make_remote(dev.clone());
 
             tasks.push(
                 tokio::spawn(async move {
@@ -60,19 +58,14 @@ impl RemoteManager {
         }
     }
 
-    fn make_remote(dev: RemoteTypes, settings: SettingsFile) -> Box<dyn AsyncRemote> {
-        let tun_ip = match &settings.local {
-            settings::LocalTypes::Layer3 { tun_ip } => Some(*tun_ip),
-            settings::LocalTypes::Layer2 { .. } => None
-        };
-
+    fn make_remote(dev: RemoteTypes) -> Box<dyn AsyncRemote> {
         match dev {
             RemoteTypes::UDP { iface, listen_addr, listen_port } => {
-                Box::new(UDPremote::new(iface.to_string(), listen_addr, listen_port, settings.peer_id, tun_ip))
+                Box::new(UDPremote::new(iface, listen_addr, listen_port))
             },
             RemoteTypes::UDPLz4 { iface, listen_addr, listen_port } => {
-                    todo!()
-                    //Box::new(UDPLz4Remote::new(iface.to_string(), *listen_addr, *listen_port, settings.peer_id, tun_ip, peer_list.clone()))
+                Box::new(UDPLz4Remote::new(iface, listen_addr, listen_port))
+                //Box::new(UDPLz4Remote::new(iface.to_string(), *listen_addr, *listen_port, settings.peer_id, tun_ip, peer_list.clone()))
             }
         }
 

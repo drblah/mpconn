@@ -21,7 +21,6 @@ pub trait AsyncRemote: Send {
 
 pub struct UDPremote {
     interface: String,
-    tun_ip: Option<Ipv4Addr>,
     input_stream: SplitStream<UdpFramed<BytesCodec>>,
     output_stream: SplitSink<UdpFramed<BytesCodec>, (Bytes, SocketAddr)>,
 }
@@ -57,7 +56,7 @@ impl AsyncRemote for UDPremote {
                     bytes: received_bytes.to_vec(),
                 })
             }
-            Err(e) => None,
+            Err(_e) => None,
         }
     }
 
@@ -71,8 +70,6 @@ impl UDPremote {
         iface: String,
         listen_addr: Option<Ipv4Addr>,
         listen_port: u16,
-        peer_id: u16,
-        tun_ip: Option<Ipv4Addr>,
     ) -> UDPremote {
         let socket = UdpFramed::new(
             make_socket(&iface, listen_addr, listen_port),
@@ -83,7 +80,6 @@ impl UDPremote {
 
         UDPremote {
             interface: iface,
-            tun_ip,
             input_stream: reader,
             output_stream: writer,
         }
@@ -134,7 +130,6 @@ impl UDPLz4Remote {
         iface: String,
         listen_addr: Option<Ipv4Addr>,
         listen_port: u16,
-        tun_ip: Option<Ipv4Addr>,
     ) -> UDPLz4Remote {
         let socket = UdpFramed::new(
             make_socket(&iface, listen_addr, listen_port),
@@ -145,7 +140,6 @@ impl UDPLz4Remote {
 
         let inner = UDPremote {
             interface: iface,
-            tun_ip,
             input_stream: reader,
             output_stream: writer,
         };
