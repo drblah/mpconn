@@ -10,6 +10,7 @@ use tokio::sync::{broadcast, mpsc};
 use tokio::task;
 use crate::connection_manager::ConnectionManager;
 use crate::internal_messages::{IncomingUnparsedPacket, OutgoingUDPPacket};
+use crate::local_manager::LocalManager;
 use crate::remote_manager::RemoteManager;
 
 mod async_pcap;
@@ -23,6 +24,7 @@ mod traffic_director;
 mod internal_messages;
 mod remote_manager;
 mod connection_manager;
+mod local_manager;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
@@ -49,9 +51,10 @@ async fn main() {
 
     info!("Using config: {:?}", settings);
 
-    let (outgoing_broadcast_tx, mut outgoing_broadcast_rx) = broadcast::channel::<OutgoingUDPPacket>(16);
+    let (outgoing_broadcast_tx, _outgoing_broadcast_rx) = broadcast::channel::<OutgoingUDPPacket>(16);
     let (raw_udp_tx, raw_udp_rx) = mpsc::channel::<IncomingUnparsedPacket>(16);
-    let (packets_to_local, packets_from_local) = mpsc::channel::<Vec<u8>>(16);
+    let (packets_to_local_tx, packets_to_local_rx) = mpsc::channel::<Vec<u8>>(16);
+    let (packets_from_local_tx, packets_from_local_rx) = mpsc::channel::<Vec<u8>>(16);
 
 
     let mut remote_manager = RemoteManager::new(
@@ -64,27 +67,40 @@ async fn main() {
         settings.clone(),
         outgoing_broadcast_tx,
         raw_udp_rx,
-        packets_to_local,
-        packets_from_local,
+        packets_to_local_tx,
+        packets_from_local_rx,
     );
 
-    // TODO: Implement a local manager which puts packets from the local interface
-    // into the mpsc and receives packets fro mthe mpsc and writes them to the lical interface
+    let mut local_manager = LocalManager::new(
+        settings.clone(),
+        packets_to_local_rx,
+        packets_from_local_tx,
+    );
 
     let mut tasks = Vec::new();
 
+    println!("Starting RemoteManager task");
     tasks.push(
         task::spawn(async move {
             remote_manager.run().await
         })
     );
 
+    println!("Starting ConnectionManager task");
     tasks.push(
         task::spawn(async move {
             connection_manager.run().await
         })
     );
 
+    println!("Starting LocalManager task");
+    tasks.push(
+        task::spawn(async move {
+            local_manager.run().await
+        })
+    );
+
+    println!("Awaiting all tasks...");
     for task in &mut tasks {
         task.await.unwrap()
     }
