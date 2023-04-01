@@ -51,10 +51,12 @@ async fn main() {
 
     info!("Using config: {:?}", settings);
 
-    let (outgoing_broadcast_tx, _outgoing_broadcast_rx) = broadcast::channel::<OutgoingUDPPacket>(16);
-    let (raw_udp_tx, raw_udp_rx) = mpsc::channel::<IncomingUnparsedPacket>(16);
-    let (packets_to_local_tx, packets_to_local_rx) = mpsc::channel::<Vec<u8>>(16);
-    let (packets_from_local_tx, packets_from_local_rx) = mpsc::channel::<Vec<u8>>(16);
+    let channel_capacity = 128;
+
+    let (outgoing_broadcast_tx, _outgoing_broadcast_rx) = broadcast::channel::<OutgoingUDPPacket>(channel_capacity);
+    let (raw_udp_tx, raw_udp_rx) = mpsc::channel::<IncomingUnparsedPacket>(channel_capacity);
+    let (packets_to_local_tx, packets_to_local_rx) = mpsc::channel::<Vec<u8>>(channel_capacity);
+    let (packets_from_local_tx, packets_from_local_rx) = mpsc::channel::<Vec<u8>>(channel_capacity);
 
 
     let mut remote_manager = RemoteManager::new(
