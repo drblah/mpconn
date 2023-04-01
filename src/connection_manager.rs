@@ -10,7 +10,7 @@ use tokio::task::JoinHandle;
 use crate::internal_messages::{IncomingUnparsedPacket, OutgoingUDPPacket};
 use crate::messages::{Keepalive, Messages};
 use crate::peer_list::{PeerList};
-use crate::{settings, traffic_director};
+use crate::{messages, settings, traffic_director};
 use crate::settings::{LocalTypes, SettingsFile};
 use crate::traffic_director::DirectorType;
 
@@ -26,6 +26,7 @@ impl ConnectionManager {
         mut udp_output_broadcast_to_remotes: broadcast::Sender<OutgoingUDPPacket>,
         mut raw_udp_from_remotes: mpsc::Receiver<IncomingUnparsedPacket>,
         mut packets_to_local: mpsc::Sender<Packet>,
+        mut packets_from_local: mpsc::Receiver<Vec<u8>>,
         localtype: LocalTypes) -> ConnectionManager
     {
         let bincode_config = bincode::options()
@@ -77,6 +78,25 @@ impl ConnectionManager {
                             }
                             None => {
                                 panic!("ConnectionManager: raw_udp_from_remotes channel was closed");
+                            }
+                        }
+                    }
+
+                    new_packet_from_local = packets_from_local.recv() => {
+
+                        match new_packet_from_local {
+                            Some(new_packet_from_local) => {
+                                Self::handle_packet_from_local(
+                                    new_packet_from_local,
+                                    &bincode_config,
+                                    own_peer_id,
+                                    &mut udp_output_broadcast_to_remotes,
+                                    &mut peer_list,
+                                    &mut traffic_director
+                                ).await;
+                            }
+                            None => {
+                                panic!("ConnectionManager: packets_from_local channel was closed");
                             }
                         }
                     }
@@ -198,6 +218,98 @@ impl ConnectionManager {
 
 
                     packets_to_local.send(next_packet).await.unwrap()
+                }
+            }
+        }
+    }
+
+    async fn handle_packet_from_local(
+        packet: Vec<u8>,
+        bincode_config: &BincodeSettings,
+        own_peer_id: u16,
+        udp_output_broadcast_to_remotes: &mut broadcast::Sender<OutgoingUDPPacket>,
+        peer_list: &mut PeerList,
+        traffic_director: &mut DirectorType,
+    ) {
+        match traffic_director {
+            DirectorType::Layer2(td) => {
+                if let Some(destination_peer) = td.get_path(&BytesMut::from(packet.as_slice())) {
+                    match destination_peer {
+                        traffic_director::Path::Peer(peer_id) => {
+                            let tx_counter = peer_list.get_peer_tx_counter(peer_id);
+
+                            let inner_packet = messages::Packet {
+                                seq: tx_counter,
+                                peer_id: own_peer_id,
+                                bytes: packet,
+                            };
+
+                            let serialized_packet = bincode_config.serialize(&Messages::Packet(inner_packet)).unwrap();
+
+                            peer_list.increment_peer_tx_counter(peer_id);
+
+                            for peer_socketaddr in peer_list.get_peer_connections(peer_id) {
+                                let outgoing_packet = OutgoingUDPPacket {
+                                    destination: peer_socketaddr,
+                                    packet_bytes: serialized_packet.clone(),
+                                };
+
+                                udp_output_broadcast_to_remotes.send(outgoing_packet).unwrap();
+                            }
+                        }
+                        traffic_director::Path::Broadcast => {
+                            // Increment all tx counters since we are broadcasting to all
+                            // known peers
+
+                            for peer_id in peer_list.get_peer_ids() {
+                                let tx_counter = peer_list.get_peer_tx_counter(peer_id);
+
+                                let packet = messages::Packet {
+                                    seq: tx_counter,
+                                    peer_id: own_peer_id,
+                                    bytes: packet.clone(),
+                                };
+
+                                let serialized_packet = bincode_config.serialize(&Messages::Packet(packet)).unwrap();
+
+                                peer_list.increment_peer_tx_counter(peer_id);
+
+                                for peer_socketaddr in peer_list.get_peer_connections(peer_id) {
+                                    let outgoing_packet = OutgoingUDPPacket {
+                                        destination: peer_socketaddr,
+                                        packet_bytes: serialized_packet.clone(),
+                                    };
+
+                                    udp_output_broadcast_to_remotes.send(outgoing_packet).unwrap();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            DirectorType::Layer3(td) => {
+                if let Some(destination_peer) = td.get_route(&BytesMut::from(packet.as_slice())) {
+                    let tx_counter = peer_list.get_peer_tx_counter(destination_peer);
+
+                    let packet = messages::Packet {
+                        seq: tx_counter,
+                        peer_id: own_peer_id,
+                        bytes: packet,
+                    };
+
+                    let serialized_packet = bincode_config.serialize(&Messages::Packet(packet)).unwrap();
+
+                    peer_list.increment_peer_tx_counter(destination_peer);
+
+                    for peer_socketaddr in peer_list.get_peer_connections(destination_peer) {
+                        let outgoing_packet = OutgoingUDPPacket {
+                            destination: peer_socketaddr,
+                            packet_bytes: serialized_packet.clone(),
+                        };
+
+                        udp_output_broadcast_to_remotes.send(outgoing_packet).unwrap();
+                    }
                 }
             }
         }
