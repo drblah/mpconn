@@ -20,7 +20,8 @@ impl LocalManager {
 
                     // Got new packet from local. This must be sent into the mpsc
                     _tun_result = local.read(&mut tun_buf) => {
-                        packets_from_local.send(tun_buf[..].to_vec()).await.unwrap()
+                        packets_from_local.send(tun_buf[..].to_vec()).await.unwrap();
+                        tun_buf.clear()
                     }
 
                     // We have received and parsed a new packet from the Remote and must
