@@ -7,6 +7,7 @@ use crate::messages::{Messages, Packet};
 use crate::peer_list::{PeerList};
 use clap::Parser;
 use tokio::sync::{broadcast, mpsc};
+use tokio::task;
 use crate::connection_manager::ConnectionManager;
 use crate::internal_messages::{IncomingUnparsedPacket, OutgoingUDPPacket};
 use crate::remote_manager::RemoteManager;
@@ -53,13 +54,13 @@ async fn main() {
     let (packets_to_local, packets_from_local) = mpsc::channel::<Vec<u8>>(16);
 
 
-    let remote_manager = RemoteManager::new(
+    let mut remote_manager = RemoteManager::new(
         settings.clone(),
         &outgoing_broadcast_tx,
         raw_udp_tx,
     );
 
-    let connection_manager = ConnectionManager::new(
+    let mut connection_manager = ConnectionManager::new(
         settings.clone(),
         outgoing_broadcast_tx,
         raw_udp_rx,
@@ -70,5 +71,21 @@ async fn main() {
     // TODO: Implement a local manager which puts packets from the local interface
     // into the mpsc and receives packets fro mthe mpsc and writes them to the lical interface
 
-    loop {}
+    let mut tasks = Vec::new();
+
+    tasks.push(
+        task::spawn(async move {
+            remote_manager.run().await
+        })
+    );
+
+    tasks.push(
+        task::spawn(async move {
+            connection_manager.run().await
+        })
+    );
+
+    for task in &mut tasks {
+        task.await.unwrap()
+    }
 }
