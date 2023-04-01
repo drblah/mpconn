@@ -33,7 +33,7 @@ impl ConnectionManager {
             .with_varint_encoding()
             .allow_trailing_bytes();
 
-        let mut peer_list = PeerList::new(None);
+        let mut peer_list = PeerList::new(Some(settings.peers));
         let mut traffic_director = match settings.local {
             LocalTypes::Layer2 { .. } => {
                 let td = traffic_director::Layer2Director::new();
@@ -361,6 +361,8 @@ impl ConnectionManager {
         let active_peer_sockets = peer_list.get_all_connections();
 
         for socket in active_peer_sockets {
+            println!("Sending keepalive packet to: {}", socket);
+
             let outgoing_packet = OutgoingUDPPacket {
                 destination: socket,
                 packet_bytes: serialized_packet.clone(),
