@@ -45,7 +45,8 @@ impl LocalManager {
             }
         });
 
-
-        todo!()
+        LocalManager {
+            tasks: vec![manager_task]
+        }
     }
 }
