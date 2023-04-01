@@ -21,7 +21,7 @@ pub struct ConnectionManager {
 }
 
 impl ConnectionManager {
-    pub async fn new(
+    pub fn new(
         settings: SettingsFile,
         mut udp_output_broadcast_to_remotes: broadcast::Sender<OutgoingUDPPacket>,
         mut raw_udp_from_remotes: mpsc::Receiver<IncomingUnparsedPacket>,
@@ -154,6 +154,12 @@ impl ConnectionManager {
 
         ConnectionManager {
             tasks: vec![manager_task]
+        }
+    }
+
+    pub async fn run(&mut self) {
+        for task in &mut self.tasks {
+            task.await.unwrap()
         }
     }
 
