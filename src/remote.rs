@@ -70,9 +70,10 @@ impl UDPremote {
         iface: String,
         listen_addr: Option<Ipv4Addr>,
         listen_port: u16,
+        bind_to_device: bool
     ) -> UDPremote {
         let socket = UdpFramed::new(
-            make_socket(&iface, listen_addr, listen_port),
+            make_socket(&iface, listen_addr, listen_port, bind_to_device),
             BytesCodec::new(),
         );
 
@@ -130,9 +131,10 @@ impl UDPLz4Remote {
         iface: String,
         listen_addr: Option<Ipv4Addr>,
         listen_port: u16,
+        bind_to_device: bool
     ) -> UDPLz4Remote {
         let socket = UdpFramed::new(
-            make_socket(&iface, listen_addr, listen_port),
+            make_socket(&iface, listen_addr, listen_port, bind_to_device),
             BytesCodec::new(),
         );
 
@@ -171,16 +173,19 @@ pub fn interface_to_ipaddr(interface: &str) -> Result<Ipv4Addr, std::io::Error> 
     Err(Error::from(std::io::ErrorKind::AddrNotAvailable))
 }
 
-fn make_socket(interface: &str, local_address: Option<Ipv4Addr>, local_port: u16) -> UdpSocket {
+fn make_socket(interface: &str, local_address: Option<Ipv4Addr>, local_port: u16, bind_to_device: bool) -> UdpSocket {
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, None).unwrap();
 
-    if let Err(err) = socket.bind_device(Some(interface.as_bytes())) {
-        if matches!(err.raw_os_error(), Some(libc::ENODEV)) {
-            panic!("error binding to device (`{}`): {}", interface, err);
-        } else {
-            panic!("unexpected error binding device: {}", err);
+    if bind_to_device {
+        if let Err(err) = socket.bind_device(Some(interface.as_bytes())) {
+            if matches!(err.raw_os_error(), Some(libc::ENODEV)) {
+                panic!("error binding to device (`{}`): {}", interface, err);
+            } else {
+                panic!("unexpected error binding device: {}", err);
+            }
         }
     }
+
 
     let local_address = match local_address {
         Some(local_address) => {

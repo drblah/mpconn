@@ -32,13 +32,21 @@ pub enum RemoteTypes {
         listen_addr: Option<Ipv4Addr>,
         /// The listen port is mandatory and specifies which port the UDP socket will bind to.
         listen_port: u16,
+        /// Whether the Remote should bind to the device or not. This is mostly useful for a server
+        /// instance which only has a single interface with multiple routes to clients. Default is true
+        bind_to_device: Option<bool>,
     },
 
     /// The UDPLz4 Remote variant is identical to the UDP Remote in most ways.
     UDPLz4 {
         iface: String,
+        /// Optionally, the user can provide an IP address on which the socket will bind.
         listen_addr: Option<Ipv4Addr>,
+        /// The listen port is mandatory and specifies which port the UDP socket will bind to.
         listen_port: u16,
+        /// Whether the Remote should bind to the device or not. This is mostly useful for a server
+        /// instance which only has a single interface with multiple routes to clients. Default is true
+        bind_to_device: Option<bool>,
     },
 }
 

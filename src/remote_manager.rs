@@ -70,12 +70,27 @@ impl RemoteManager {
 
     fn make_remote(dev: RemoteTypes) -> Box<dyn AsyncRemote> {
         match dev {
-            RemoteTypes::UDP { iface, listen_addr, listen_port } => {
-                Box::new(UDPremote::new(iface, listen_addr, listen_port))
-            },
-            RemoteTypes::UDPLz4 { iface, listen_addr, listen_port } => {
-                Box::new(UDPLz4Remote::new(iface, listen_addr, listen_port))
-                //Box::new(UDPLz4Remote::new(iface.to_string(), *listen_addr, *listen_port, settings.peer_id, tun_ip, peer_list.clone()))
+            RemoteTypes::UDP { iface, listen_addr, listen_port, bind_to_device } => {
+                // In case bind_to_device was not set in the settings, we default to true
+                match bind_to_device {
+                    None => {
+                        Box::new(UDPremote::new(iface, listen_addr, listen_port, true))
+                    }
+                    Some(bind_to_device) => {
+                        Box::new(UDPremote::new(iface, listen_addr, listen_port, bind_to_device))
+                    }
+                }
+            }
+            RemoteTypes::UDPLz4 { iface, listen_addr, listen_port, bind_to_device } => {
+                // In case bind_to_device was not set in the settings, we default to true
+                match bind_to_device {
+                    None => {
+                        Box::new(UDPLz4Remote::new(iface, listen_addr, listen_port, true))
+                    }
+                    Some(bind_to_device) => {
+                        Box::new(UDPLz4Remote::new(iface, listen_addr, listen_port, bind_to_device))
+                    }
+                }
             }
         }
 
