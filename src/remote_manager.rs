@@ -1,6 +1,7 @@
 use bytes::Bytes;
 use tokio::select;
 use tokio::sync::{broadcast, mpsc};
+use tokio::sync::broadcast::error::RecvError;
 use tokio::task::JoinHandle;
 use crate::internal_messages::{IncomingUnparsedPacket, OutgoingUDPPacket};
 use crate::remote::{AsyncRemote, UDPremote, UDPLz4Remote};
@@ -32,7 +33,16 @@ impl RemoteManager {
                                         remote.write( Bytes::from(outgoing.packet_bytes), outgoing.destination).await
                                     }
                                     Err(e) => {
-                                        eprintln!("RemoteManager: Cannot keep up with sending packets! {}", e);
+                                        match e {
+                                            RecvError::Lagged(lagg) => {
+                                                eprintln!("RemoteManager: Cannot keep up with sending packets! Dropping {}", lagg);
+                                            }
+                                            RecvError::Closed => {
+                                                panic!("RemoteManager: Broadcast channel closed unexpectedly!")
+                                            }
+                                        }
+
+
                                     }
                                 }
 
