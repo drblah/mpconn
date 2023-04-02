@@ -5,6 +5,8 @@ extern crate core;
 
 use crate::messages::{Packet};
 use clap::Parser;
+use tokio::fs::File;
+use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::sync::{broadcast, mpsc};
 use tokio::task;
 use crate::connection_manager::ConnectionManager;
@@ -41,8 +43,16 @@ struct Args {
 async fn main() {
     let args = Args::parse();
 
+    let mut interface_logger: Option<BufWriter<File>> = Option::None;
+
     if args.debug {
-        todo!()
+        interface_logger = Some(BufWriter::new(File::create("interface.log").await.unwrap()));
+
+        if let Some(if_log) = &mut interface_logger {
+            if_log.write_all("ts,pkt_idx,inface\n".as_ref()).await.unwrap();
+
+            println!("Logging interfaces");
+        }
     }
 
     let settings: settings::SettingsFile =
@@ -66,6 +76,7 @@ async fn main() {
 
     let mut connection_manager = ConnectionManager::new(
         settings.clone(),
+        interface_logger,
         outgoing_broadcast_tx,
         raw_udp_rx,
         packets_to_local_tx,

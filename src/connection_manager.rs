@@ -1,10 +1,12 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use bincode::config::{AllowTrailing, VarintEncoding, WithOtherIntEncoding, WithOtherTrailing};
 use bincode::{DefaultOptions, Options};
 use bytes::BytesMut;
 use crate::messages::Packet;
 use tokio::{select, time};
+use tokio::fs::File;
+use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use crate::internal_messages::{IncomingUnparsedPacket, OutgoingUDPPacket};
@@ -23,6 +25,7 @@ pub struct ConnectionManager {
 impl ConnectionManager {
     pub fn new(
         settings: SettingsFile,
+        mut interface_logger: Option<BufWriter<File>>,
         mut udp_output_broadcast_to_remotes: broadcast::Sender<OutgoingUDPPacket>,
         mut raw_udp_from_remotes: mpsc::Receiver<IncomingUnparsedPacket>,
         mut packets_to_local: mpsc::Sender<Vec<u8>>,
@@ -71,6 +74,7 @@ impl ConnectionManager {
                             Some(new_raw_udp_packet) => {
                                 Self::handle_udp_packet(
                                     &bincode_config,
+                                    &mut interface_logger,
                                     new_raw_udp_packet,
                                     &mut packets_to_local,
                                     &mut peer_list,
@@ -123,12 +127,10 @@ impl ConnectionManager {
                     _ = maintenance_interval.tick() => {
                         peer_list.prune_stale_peers();
 
-                        // TODO: Flush interface_log if it is enabled
-                        //if args.debug {
-                        //    if let Some(if_log) = &mut interface_logger {
-                        //        if_log.flush().await.unwrap();
-                        //    }
-                        //}
+
+                        if let Some(if_log) = &mut interface_logger {
+                            if_log.flush().await.unwrap();
+                        }
 
                         for peer_id in peer_list.get_peer_ids() {
                             if let Some(peer_sequencer) = peer_list.get_peer_sequencer(peer_id) {
@@ -164,6 +166,7 @@ impl ConnectionManager {
     }
 
     async fn handle_udp_packet(bincode_config: &BincodeSettings,
+                               interface_logger: &mut Option<BufWriter<File>>,
                                raw_udp_packet: IncomingUnparsedPacket,
                                packets_to_local: &mut mpsc::Sender<Vec<u8>>,
                                peer_list: &mut PeerList,
@@ -171,6 +174,15 @@ impl ConnectionManager {
         match bincode_config.deserialize::<Messages>(&raw_udp_packet.bytes) {
             Ok(decoded) => match decoded {
                 Messages::Packet(pkt) => {
+                    // If interface logging is enabled, write a log entry for which interface
+                    // we received the packet on.
+                    if let Some(if_log) = interface_logger {
+                        Self::write_interface_log(
+                            if_log,
+                            raw_udp_packet.receiver_interface.as_str(),
+                            pkt.seq).await;
+                    }
+
                     Self::handle_incoming_packet(
                         pkt,
                         packets_to_local,
@@ -370,6 +382,12 @@ impl ConnectionManager {
 
             udp_output_broadcast_to_remotes.send(outgoing_packet).unwrap();
         }
+    }
+
+    async fn write_interface_log(if_log: &mut BufWriter<File>, receiver_interface: &str, sequence_number: usize) {
+        let time_stamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos();
+        let log_string = format!("{},{},{}\n", time_stamp, sequence_number, receiver_interface);
+        if_log.write_all(log_string.as_ref()).await.unwrap();
     }
 }
 
