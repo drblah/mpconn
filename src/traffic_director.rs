@@ -105,8 +105,13 @@ impl Layer3Director {
         }
     }
 
-    pub fn insert_route(&mut self, peer_id: u16, address: IpAddr) {
-        self.routing_table.entry(address).or_insert(peer_id);
+    pub fn insert_route(&mut self, peer_id: u16, address: IpAddr) -> bool {
+        if self.routing_table.contains_key(&address) {
+            false
+        } else {
+            self.routing_table.insert(address, peer_id);
+            true
+        }
     }
 
     pub fn get_route(&self, packet_bytes: &BytesMut) -> Option<u16> {
