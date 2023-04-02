@@ -78,7 +78,11 @@ impl ConnectionManager {
                                     new_raw_udp_packet,
                                     &mut packets_to_local,
                                     &mut peer_list,
-                                    &mut traffic_director).await;
+                                    &mut traffic_director,
+                                    own_peer_id,
+                                    own_tun_ip,
+                                    &mut udp_output_broadcast_to_remotes
+                                ).await;
                             }
                             None => {
                                 panic!("ConnectionManager: raw_udp_from_remotes channel was closed");
@@ -170,7 +174,11 @@ impl ConnectionManager {
                                raw_udp_packet: IncomingUnparsedPacket,
                                packets_to_local: &mut mpsc::Sender<Vec<u8>>,
                                peer_list: &mut PeerList,
-                               traffic_director: &mut DirectorType) {
+                               traffic_director: &mut DirectorType,
+                               own_peer_id: u16,
+                               own_tun_ip: Option<Ipv4Addr>,
+                               udp_output_broadcast_to_remotes: &mut broadcast::Sender<OutgoingUDPPacket>,
+    ) {
         match bincode_config.deserialize::<Messages>(&raw_udp_packet.bytes) {
             Ok(decoded) => match decoded {
                 Messages::Packet(pkt) => {
@@ -201,7 +209,11 @@ impl ConnectionManager {
                         raw_udp_packet.received_from,
                         peer_list,
                         traffic_director,
-                    );
+                        bincode_config,
+                        own_peer_id,
+                        own_tun_ip,
+                        udp_output_broadcast_to_remotes,
+                    ).await;
                 }
             },
             Err(err) => {
@@ -333,10 +345,15 @@ impl ConnectionManager {
         }
     }
 
-    fn handle_incoming_keepalive(keepalive_packet: Keepalive,
-                                 source: SocketAddr,
-                                 peer_list: &mut PeerList,
-                                 traffic_director: &mut DirectorType)
+    async fn handle_incoming_keepalive(keepalive_packet: Keepalive,
+                                       source: SocketAddr,
+                                       peer_list: &mut PeerList,
+                                       traffic_director: &mut DirectorType,
+                                       bincode_config: &BincodeSettings,
+                                       own_peer_id: u16,
+                                       own_tun_ip: Option<Ipv4Addr>,
+                                       udp_output_broadcast_to_remotes: &mut broadcast::Sender<OutgoingUDPPacket>,
+    )
     {
         peer_list.add_peer(
             keepalive_packet.peer_id,
@@ -348,7 +365,19 @@ impl ConnectionManager {
             traffic_director::DirectorType::Layer3(td) => {
                 if let Some(tun_ip) = keepalive_packet.tun_ip {
                     let tun_ip = IpAddr::V4(tun_ip);
-                    td.insert_route(keepalive_packet.peer_id, tun_ip);
+                    let is_new_route = td.insert_route(keepalive_packet.peer_id, tun_ip);
+
+                    if is_new_route {
+                        println!("Got a new L3 route. Sending instant keepalive to peer: {}", keepalive_packet.peer_id);
+                        Self::handle_instant_keepalive(
+                            bincode_config,
+                            own_peer_id,
+                            own_tun_ip,
+                            keepalive_packet.peer_id,
+                            udp_output_broadcast_to_remotes,
+                            peer_list,
+                        ).await;
+                    }
                 }
             }
         }
@@ -375,6 +404,34 @@ impl ConnectionManager {
         for socket in active_peer_sockets {
             println!("Sending keepalive packet to: {}", socket);
 
+            let outgoing_packet = OutgoingUDPPacket {
+                destination: socket,
+                packet_bytes: serialized_packet.clone(),
+            };
+
+            udp_output_broadcast_to_remotes.send(outgoing_packet).unwrap();
+        }
+    }
+
+    async fn handle_instant_keepalive(
+        bincode_config: &BincodeSettings,
+        own_peer_id: u16,
+        own_tun_ip: Option<Ipv4Addr>,
+        target_peer_id: u16,
+        udp_output_broadcast_to_remotes: &mut broadcast::Sender<OutgoingUDPPacket>,
+        peer_list: &mut PeerList,
+    )
+    {
+        let keepalive_message = Keepalive {
+            peer_id: own_peer_id,
+            tun_ip: own_tun_ip,
+        };
+
+        let serialized_packet = bincode_config
+            .serialize(&Messages::Keepalive(keepalive_message))
+            .unwrap();
+
+        for socket in peer_list.get_peer_connections(target_peer_id) {
             let outgoing_packet = OutgoingUDPPacket {
                 destination: socket,
                 packet_bytes: serialized_packet.clone(),
