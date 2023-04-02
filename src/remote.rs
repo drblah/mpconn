@@ -7,6 +7,7 @@ use lz4_flex::{compress_prepend_size, decompress_size_prepended};
 use socket2::{Domain, Socket, Type};
 use std::net::{IpAddr, UdpSocket as std_udp};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use log::error;
 use tokio::net::UdpSocket;
 use tokio_util::codec::BytesCodec;
 use tokio_util::udp::UdpFramed;
@@ -37,7 +38,7 @@ impl AsyncRemote for UDPremote {
             Ok(_) => {}
             Err(e) => match e.kind() {
                 std::io::ErrorKind::NetworkUnreachable => {
-                    println!("{} Network Unreachable", self.interface)
+                    error!("{} Network Unreachable", self.interface)
                 }
                 _ => panic!(
                     "{} Encountered unhandled problem when sending: {:?}",
@@ -95,7 +96,7 @@ impl AsyncRemote for UDPLz4Remote {
             Ok(_) => {}
             Err(e) => match e.kind() {
                 std::io::ErrorKind::NetworkUnreachable => {
-                    println!("{} Network Unreachable", self.inner_udp_remote.interface)
+                    error!("{} Network Unreachable", self.inner_udp_remote.interface)
                 }
                 _ => panic!(
                     "{} Encountered unhandled problem when sending: {:?}",

@@ -3,6 +3,7 @@ use std::time::{Duration, SystemTime};
 use bincode::config::{AllowTrailing, VarintEncoding, WithOtherIntEncoding, WithOtherTrailing};
 use bincode::{DefaultOptions, Options};
 use bytes::BytesMut;
+use log::{debug, error};
 use crate::messages::Packet;
 use tokio::{select, time};
 use tokio::fs::File;
@@ -138,7 +139,7 @@ impl ConnectionManager {
 
                         for peer_id in peer_list.get_peer_ids() {
                             if let Some(peer_sequencer) = peer_list.get_peer_sequencer(peer_id) {
-                                println!("Sequencer packet queue length for peer: {} - {} packets",
+                                debug!("Sequencer packet queue length for peer: {} - {} packets",
                                     peer_id,
                                     peer_sequencer.get_queue_length()
                                 );
@@ -199,7 +200,7 @@ impl ConnectionManager {
                     ).await
                 },
                 Messages::Keepalive(keepalive) => {
-                    println!(
+                    debug!(
                         "Received keepalive msg from: {:?}, ID: {}",
                         raw_udp_packet.received_from, keepalive.peer_id
                     );
@@ -218,8 +219,8 @@ impl ConnectionManager {
             },
             Err(err) => {
                 // If we receive garbage, simply throw it away and continue.
-                println!("Unable do deserialize packet. Got error: {}", err);
-                println!("{:?}", raw_udp_packet.bytes);
+                error!("Unable do deserialize packet. Got error: {}", err);
+                error!("{:?}", raw_udp_packet.bytes);
             }
         };
     }
@@ -368,7 +369,7 @@ impl ConnectionManager {
                     let is_new_route = td.insert_route(keepalive_packet.peer_id, tun_ip);
 
                     if is_new_route {
-                        println!("Got a new L3 route. Sending instant keepalive to peer: {}", keepalive_packet.peer_id);
+                        debug!("Got a new L3 route. Sending instant keepalive to peer: {}", keepalive_packet.peer_id);
                         Self::handle_instant_keepalive(
                             bincode_config,
                             own_peer_id,
@@ -402,7 +403,7 @@ impl ConnectionManager {
         let active_peer_sockets = peer_list.get_all_connections();
 
         for socket in active_peer_sockets {
-            println!("Sending keepalive packet to: {}", socket);
+            debug!("Sending keepalive packet to: {}", socket);
 
             let outgoing_packet = OutgoingUDPPacket {
                 destination: socket,

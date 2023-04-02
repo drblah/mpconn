@@ -1,4 +1,5 @@
 use bytes::Bytes;
+use log::error;
 use tokio::select;
 use tokio::sync::{broadcast, mpsc};
 use tokio::sync::broadcast::error::RecvError;
@@ -35,7 +36,7 @@ impl RemoteManager {
                                     Err(e) => {
                                         match e {
                                             RecvError::Lagged(lagg) => {
-                                                eprintln!("RemoteManager: Cannot keep up with sending packets! Dropping {}", lagg);
+                                                error!("RemoteManager: Cannot keep up with sending packets! Dropping {}", lagg);
                                             }
                                             RecvError::Closed => {
                                                 panic!("RemoteManager: Broadcast channel closed unexpectedly!")

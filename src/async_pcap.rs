@@ -3,6 +3,7 @@ use pcap::{Active, Capture};
 use std::io::{self};
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use log::error;
 use tokio::io::unix::AsyncFd;
 use tokio::io::AsyncRead;
 use tokio::io::{AsyncWrite, ReadBuf};
@@ -41,7 +42,7 @@ impl AsyncWrite for AsyncPcapStream {
                 Err(e) => match e {
                     pcap::Error::PcapError(e) => match e.as_str() {
                         "send: Message too long" => {
-                            println!(
+                            error!(
                                 "Tried to send too large packet of size: {}, skipping",
                                 buf.len()
                             );

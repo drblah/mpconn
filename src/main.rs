@@ -1,6 +1,7 @@
 #![feature(io_error_more)]
-#[macro_use]
-extern crate log;
+
+use log::{debug, error, log_enabled, info, Level};
+
 extern crate core;
 
 use crate::messages::{Packet};
@@ -41,6 +42,7 @@ struct Args {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
+    env_logger::init();
     let args = Args::parse();
 
     let mut interface_logger: Option<BufWriter<File>> = Option::None;
@@ -51,7 +53,7 @@ async fn main() {
         if let Some(if_log) = &mut interface_logger {
             if_log.write_all("ts,pkt_idx,inface\n".as_ref()).await.unwrap();
 
-            println!("Logging interfaces");
+            info!("Logging interfaces");
         }
     }
 
@@ -91,28 +93,28 @@ async fn main() {
 
     let mut tasks = Vec::new();
 
-    println!("Starting RemoteManager task");
+    info!("Starting RemoteManager task");
     tasks.push(
         task::spawn(async move {
             remote_manager.run().await
         })
     );
 
-    println!("Starting ConnectionManager task");
+    info!("Starting ConnectionManager task");
     tasks.push(
         task::spawn(async move {
             connection_manager.run().await
         })
     );
 
-    println!("Starting LocalManager task");
+    info!("Starting LocalManager task");
     tasks.push(
         task::spawn(async move {
             local_manager.run().await
         })
     );
 
-    println!("Awaiting all tasks...");
+    info!("Awaiting all tasks...");
     for task in &mut tasks {
         task.await.unwrap()
     }

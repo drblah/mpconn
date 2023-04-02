@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::{Duration, SystemTime};
+use log::debug;
 use crate::sequencer::Sequencer;
 use crate::settings::PeerConfig;
 
@@ -52,12 +53,12 @@ impl PeerList {
             Some(peer) => {
                 match peer.connections.get_mut(&address) {
                     Some(lastseen) => {
-                        println!("Updating last seen for peer connection - ID: {}, address: {}", peer_id, address);
+                        debug!("Updating last seen for peer connection - ID: {}, address: {}", peer_id, address);
                         *lastseen = SystemTime::now()
                     }
 
                     _ => {
-                        println!("Inserting new connection: {} for peer: {}", address, peer_id);
+                        debug!("Inserting new connection: {} for peer: {}", address, peer_id);
                         peer.connections.insert(
                             address,
                             SystemTime::now(),
@@ -67,7 +68,7 @@ impl PeerList {
             }
 
             _ => {
-                println!("Inserting new peer with ID: {} and the connection: {}", peer_id, address);
+                debug!("Inserting new peer with ID: {} and the connection: {}", peer_id, address);
 
                 let mut new_peer = Peer {
                     connections: HashMap::new(),
@@ -148,7 +149,7 @@ impl PeerList {
 
             let pruned_size = peer.connections.len();
             if pruned_size < old_size {
-                println!("Pruned {} stale connections from peer {}", old_size - pruned_size, peer_id)
+                debug!("Pruned {} stale connections from peer {}", old_size - pruned_size, peer_id)
             }
         }
     }
