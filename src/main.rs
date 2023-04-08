@@ -1,5 +1,6 @@
 #![feature(io_error_more)]
 
+use std::sync::Arc;
 use log::{debug, error, log_enabled, info, Level};
 
 extern crate core;
@@ -76,7 +77,7 @@ async fn main() {
         raw_udp_tx,
     );
 
-    let mut connection_manager = ConnectionManager::new(
+    let connection_manager = ConnectionManager::new(
         settings.clone(),
         interface_logger,
         outgoing_broadcast_tx,
@@ -84,6 +85,8 @@ async fn main() {
         packets_to_local_tx,
         packets_from_local_rx,
     );
+
+    let connection_manager = Arc::new(connection_manager);
 
     let mut local_manager = LocalManager::new(
         settings.clone(),
