@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::{Duration, SystemTime};
+use log::debug;
+use crate::sequencer::Sequencer;
 use crate::settings::PeerConfig;
 
 pub struct PeerList {
@@ -8,9 +10,11 @@ pub struct PeerList {
     stale_time_limit: Duration,
 }
 
-#[derive(Eq, PartialEq, Debug, Clone)]
+#[derive(Debug, )]
 pub struct Peer {
-    connections: HashMap<SocketAddr, SystemTime>
+    connections: HashMap<SocketAddr, SystemTime>,
+    tx_counter: usize,
+    sequencer: Sequencer,
 }
 
 impl PeerList {
@@ -23,7 +27,9 @@ impl PeerList {
         if let Some(peers) = peers {
             for peer in peers {
                 let mut new_peer = Peer {
-                    connections: HashMap::new()
+                    connections: HashMap::new(),
+                    tx_counter: 0,
+                    sequencer: Sequencer::new(Duration::from_millis(3)),
                 };
 
                 for connection in peer.addresses {
@@ -47,12 +53,12 @@ impl PeerList {
             Some(peer) => {
                 match peer.connections.get_mut(&address) {
                     Some(lastseen) => {
-                        println!("Updating last seen for peer connection - ID: {}, address: {}", peer_id, address);
+                        debug!("Updating last seen for peer connection - ID: {}, address: {}", peer_id, address);
                         *lastseen = SystemTime::now()
                     }
 
                     _ => {
-                        println!("Inserting new connection: {} for peer: {}", address, peer_id);
+                        debug!("Inserting new connection: {} for peer: {}", address, peer_id);
                         peer.connections.insert(
                             address,
                             SystemTime::now(),
@@ -62,10 +68,12 @@ impl PeerList {
             }
 
             _ => {
-                println!("Inserting new peer with ID: {} and the connection: {}", peer_id, address);
+                debug!("Inserting new peer with ID: {} and the connection: {}", peer_id, address);
 
                 let mut new_peer = Peer {
                     connections: HashMap::new(),
+                    tx_counter: 0,
+                    sequencer: Sequencer::new(Duration::from_millis(3)),
                 };
 
                 new_peer.connections.insert(
@@ -95,6 +103,10 @@ impl PeerList {
         connections
     }
 
+    pub fn get_peer_ids(&self) -> Vec<u16> {
+        self.peers.keys().cloned().collect()
+    }
+
     pub fn get_peer_connections(&self, peer_id: u16) -> Vec<SocketAddr> {
         let mut connections = Vec::new();
 
@@ -103,6 +115,24 @@ impl PeerList {
         }
 
         connections
+    }
+
+    pub fn get_peer_sequencer(&mut self, peer_id: u16) -> Option<&mut Sequencer> {
+        if let Some(peer) = self.peers.get_mut(&peer_id) {
+            return Some(&mut peer.sequencer)
+        }
+
+        None
+    }
+
+    pub fn increment_peer_tx_counter(&mut self, peer_id: u16) {
+        if let Some(peer) = self.peers.get_mut(&peer_id) {
+            peer.increment_tx_counter()
+        }
+    }
+
+    pub fn get_peer_tx_counter(&self, peer_id: u16) -> usize {
+        self.peers.get(&peer_id).unwrap().tx_counter
     }
 
     pub fn prune_stale_peers(&mut self) {
@@ -119,8 +149,14 @@ impl PeerList {
 
             let pruned_size = peer.connections.len();
             if pruned_size < old_size {
-                println!("Pruned {} stale connections from peer {}", old_size - pruned_size, peer_id)
+                debug!("Pruned {} stale connections from peer {}", old_size - pruned_size, peer_id)
             }
         }
+    }
+}
+
+impl Peer {
+    pub fn increment_tx_counter(&mut self) {
+        self.tx_counter += 1
     }
 }

@@ -4,6 +4,7 @@ use crate::settings::SettingsFile;
 use bytes::BytesMut;
 use std::net::Ipv4Addr;
 use std::os::unix::io::AsRawFd;
+use log::info;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::io::{ReadHalf, WriteHalf};
 use tokio_tun::Tun;
@@ -82,12 +83,12 @@ fn make_tunnel(tun_ip: Ipv4Addr) -> tokio_tun::Tun {
         .try_build()
         .unwrap();
 
-    println!("-----------");
-    println!("tun created");
-    println!("-----------");
+    info!("-----------");
+    info!("tun created");
+    info!("-----------");
 
-    println!(
-        "┌ name: {}\n├ fd: {}\n├ mtu: {}\n├ flags: {}\n├ address: {}\n├ destination: {}\n├ broadcast: {}\n└ netmask: {}",
+    info!(
+        "\n┌ name: {}\n├ fd: {}\n├ mtu: {}\n├ flags: {}\n├ address: {}\n├ destination: {}\n├ broadcast: {}\n└ netmask: {}",
         tun.name(),
         tun.as_raw_fd(),
         tun.mtu().unwrap(),

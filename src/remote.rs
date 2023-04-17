@@ -1,213 +1,201 @@
-use crate::settings::RemoteTypes;
-use crate::{Messages, PeerList, traffic_director};
-use bytes::{Bytes, BytesMut};
+use std::io::Error;
+use async_trait::async_trait;
+use bytes::{Bytes};
 use futures::prelude::*;
 use futures::stream::{SplitSink, SplitStream, StreamExt};
 use lz4_flex::{compress_prepend_size, decompress_size_prepended};
 use socket2::{Domain, Socket, Type};
 use std::net::{IpAddr, UdpSocket as std_udp};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use log::error;
 use tokio::net::UdpSocket;
-use tokio::sync::RwLock;
 use tokio_util::codec::BytesCodec;
 use tokio_util::udp::UdpFramed;
-use crate::messages::{Packet, Keepalive};
-use bincode::Options;
+use crate::internal_messages::{IncomingUnparsedPacket};
 
-pub enum RemoteReaders {
-    UDPReader(SplitStream<UdpFramed<BytesCodec>>),
-    UDPReaderLz4(SplitStream<UdpFramed<BytesCodec>>),
+#[async_trait]
+pub trait AsyncRemote: Send {
+    async fn write(&mut self, buffer: Bytes, destination: SocketAddr);
+    async fn read(&mut self) -> Option<IncomingUnparsedPacket>;
+    fn get_interface(&self) -> String;
 }
 
-pub enum RemoteWriters {
-    UDPWriter(SplitSink<UdpFramed<BytesCodec>, (Bytes, SocketAddr)>),
-    UDPWriterLz4(SplitSink<UdpFramed<BytesCodec>, (Bytes, SocketAddr)>),
-}
-
-pub struct Remote {
-    pub reader: RemoteReaders,
-    pub writer: RemoteWriters,
+pub struct UDPremote {
     interface: String,
-    peer_id: u16,
-    tun_ip: Option<Ipv4Addr>
+    input_stream: SplitStream<UdpFramed<BytesCodec>>,
+    output_stream: SplitSink<UdpFramed<BytesCodec>, (Bytes, SocketAddr)>,
 }
 
-impl Remote {
-    pub fn new(settings: RemoteTypes, peer_id: u16, tun_ip: Option<Ipv4Addr>) -> Self {
-        match settings {
-            RemoteTypes::UDP {
-                iface,
-                listen_addr,
-                listen_port,
-            } => {
-                let socket = UdpFramed::new(
-                    make_socket(&iface, listen_addr, listen_port),
-                    BytesCodec::new(),
-                );
+pub struct UDPLz4Remote {
+    inner_udp_remote: UDPremote
+}
 
-                let (writer, reader) = socket.split();
 
-                Remote {
-                    reader: RemoteReaders::UDPReader(reader),
-                    writer: RemoteWriters::UDPWriter(writer),
-                    interface: iface,
-                    peer_id,
-                    tun_ip
+#[async_trait]
+impl AsyncRemote for UDPremote {
+    async fn write(&mut self, buffer: Bytes, destination: SocketAddr) {
+        match self.output_stream.send((buffer, destination)).await {
+            Ok(_) => {}
+            Err(e) => match e.kind() {
+                std::io::ErrorKind::NetworkUnreachable => {
+                    error!("{} Network Unreachable", self.interface)
                 }
-            }
-            RemoteTypes::UDPLz4 {
-                iface,
-                listen_addr,
-                listen_port,
-            } => {
-                let socket = UdpFramed::new(
-                    make_socket(&iface, listen_addr, listen_port),
-                    BytesCodec::new(),
-                );
-
-                let (writer, reader) = socket.split();
-
-                Remote {
-                    reader: RemoteReaders::UDPReaderLz4(reader),
-                    writer: RemoteWriters::UDPWriterLz4(writer),
-                    interface: iface,
-                    peer_id,
-                    tun_ip
-                }
-            }
+                _ => panic!(
+                    "{} Encountered unhandled problem when sending: {:?}",
+                    self.interface, e
+                ),
+            },
         }
     }
 
-    pub async fn write(&mut self, buffer: Bytes, destination: SocketAddr) {
-        match &mut self.writer {
-            RemoteWriters::UDPWriter(udp_writer) => {
-                match udp_writer.send((buffer, destination)).await {
-                    Ok(_) => {},
-                    Err(e) => {
-                        match e.kind() {
-                            std::io::ErrorKind::NetworkUnreachable => println!("{} Network Unreachable", self.interface),
-                            _ => panic!("{} Encountered unhandled problem when sending: {:?}", self.interface, e)
-                        }
-                    }
-                }
+    async fn read(&mut self) -> Option<IncomingUnparsedPacket> {
+        match self.input_stream.next().await.unwrap() {
+            Ok((received_bytes, adder)) => {
+                Some(IncomingUnparsedPacket {
+                    receiver_interface: self.interface.clone(),
+                    received_from: adder,
+                    bytes: received_bytes.to_vec(),
+                })
             }
-            RemoteWriters::UDPWriterLz4(udplz4_writer) => {
-                let compressed = compress_prepend_size(&buffer[..]);
-                udplz4_writer
-                    .send((Bytes::from(compressed), destination))
-                    .await
-                    .unwrap()
-            }
+            Err(_e) => None,
         }
     }
 
-    pub async fn read(&mut self, peer_list: &RwLock<PeerList>, traffic_director: &RwLock<traffic_director::DirectorType>) -> Option<Packet> {
-        match &mut self.reader {
-            RemoteReaders::UDPReader(udp_reader) => {
-                let outcome = udp_reader.next().await.unwrap();
-
-                match outcome {
-                    Ok((recieved_bytes, addr)) => udp_handle_received(recieved_bytes, addr, peer_list, traffic_director).await,
-                    Err(e) => panic!("Failed to receive from UDP remote: {}", e),
-                }
-            }
-            RemoteReaders::UDPReaderLz4(udplz4_reader) => {
-                let outcome = udplz4_reader.next().await.unwrap();
-
-                match outcome {
-                    Ok((bytes, address)) => {
-                        let uncompressed = decompress_size_prepended(&bytes[..]).unwrap();
-
-                        udp_handle_received(BytesMut::from(uncompressed.as_slice()), address, peer_list, traffic_director).await
-                    }
-                    Err(e) => panic!("Failed to receive from UDP remote: {}", e),
-                }
-            }
-        }
-    }
-
-    pub async fn keepalive(&mut self, peer_list: &mut PeerList) {
-        match &mut self.writer {
-            RemoteWriters::UDPWriter(_) => udp_keepalive(self, peer_list).await,
-            RemoteWriters::UDPWriterLz4(_) => udp_keepalive(self, peer_list).await
-        }
-    }
-
-    pub fn get_interface(&self) -> String {
+    fn get_interface(&self) -> String {
         self.interface.clone()
     }
 }
 
-async fn udp_handle_received(recieved_bytes: BytesMut, addr: SocketAddr, peer_list: &RwLock<PeerList>, traffic_director: &RwLock<traffic_director::DirectorType>) -> Option<Packet> {
-    let bincode_config = bincode::options().with_varint_encoding().allow_trailing_bytes();
+impl UDPremote {
+    pub fn new(
+        iface: String,
+        listen_addr: Option<Ipv4Addr>,
+        listen_port: u16,
+        bind_to_device: bool
+    ) -> UDPremote {
+        let socket = UdpFramed::new(
+            make_socket(&iface, listen_addr, listen_port, bind_to_device),
+            BytesCodec::new(),
+        );
 
-    let deserialized_packet: Option<Packet> = match bincode_config.deserialize::<Messages>(&recieved_bytes) {
-        Ok(decoded) => {
-            match decoded {
-                Messages::Packet(pkt) => {
-                    Some(pkt)
-                },
-                Messages::Keepalive(keepalive) => {
-                    println!("Received keepalive msg from: {:?}, ID: {}", addr, keepalive.peer_id);
-                    let mut peer_list_write_lock = peer_list.write().await;
+        let (writer, reader) = socket.split();
 
-                    peer_list_write_lock.add_peer(keepalive.peer_id, addr);
-
-
-                    let mut td_lock = traffic_director.write().await;
-
-                    match &mut *td_lock {
-                        traffic_director::DirectorType::Layer2(_td) => {},
-                        traffic_director::DirectorType::Layer3(td) => {
-                            if let Some(tun_ip) = keepalive.tun_ip {
-                                let tun_ip = IpAddr::V4(tun_ip);
-                                td.insert_route(keepalive.peer_id, tun_ip);
-                            }
-                        }
-                    }
-
-                    None
-                }
-            }
-        },
-        Err(err) => {
-            // If we receive garbage, simply throw it away and continue.
-            println!("Unable do deserialize packet. Got error: {}", err);
-            println!("{:?}", recieved_bytes);
-            None
+        UDPremote {
+            interface: iface,
+            input_stream: reader,
+            output_stream: writer,
         }
-    };
-
-    deserialized_packet
-}
-
-async fn udp_keepalive(remote: &mut Remote, peer_list: &mut PeerList) {
-    let bincode_config = bincode::options().with_varint_encoding().allow_trailing_bytes();
-
-    let keepalive_message = Keepalive {
-        peer_id: remote.peer_id,
-        tun_ip: remote.tun_ip,
-    };
-
-    let serialized_packet = bincode_config.serialize(&Messages::Keepalive(keepalive_message)).unwrap();
-
-    for peer in peer_list.get_all_connections() {
-        remote
-            .write(bytes::Bytes::copy_from_slice(&serialized_packet), peer)
-            .await
     }
 }
 
-fn make_socket(interface: &str, local_address: Ipv4Addr, local_port: u16) -> UdpSocket {
+#[async_trait]
+impl AsyncRemote for UDPLz4Remote {
+    async fn write(&mut self, buffer: Bytes, destination: SocketAddr) {
+        let compressed = compress_prepend_size(&buffer[..]);
+        match self.inner_udp_remote.output_stream.send((Bytes::from(compressed), destination)).await {
+            Ok(_) => {}
+            Err(e) => match e.kind() {
+                std::io::ErrorKind::NetworkUnreachable => {
+                    error!("{} Network Unreachable", self.inner_udp_remote.interface)
+                }
+                _ => panic!(
+                    "{} Encountered unhandled problem when sending: {:?}",
+                    self.inner_udp_remote.interface, e
+                ),
+            },
+        }
+    }
+
+    async fn read(&mut self) -> Option<IncomingUnparsedPacket> {
+        match self.inner_udp_remote.input_stream.next().await.unwrap() {
+            Ok((received_bytes, adder)) => {
+                let uncompressed = decompress_size_prepended(&received_bytes[..]).unwrap();
+
+                Some(IncomingUnparsedPacket {
+                    receiver_interface: self.inner_udp_remote.interface.clone(),
+                    received_from: adder,
+                    bytes: uncompressed,
+                })
+            }
+            Err(_e) => None,
+        }
+    }
+
+    fn get_interface(&self) -> String {
+        self.inner_udp_remote.interface.clone()
+    }
+}
+
+
+impl UDPLz4Remote {
+    pub fn new(
+        iface: String,
+        listen_addr: Option<Ipv4Addr>,
+        listen_port: u16,
+        bind_to_device: bool
+    ) -> UDPLz4Remote {
+        let socket = UdpFramed::new(
+            make_socket(&iface, listen_addr, listen_port, bind_to_device),
+            BytesCodec::new(),
+        );
+
+        let (writer, reader) = socket.split();
+
+        let inner = UDPremote {
+            interface: iface,
+            input_stream: reader,
+            output_stream: writer,
+        };
+
+        UDPLz4Remote {
+            inner_udp_remote: inner
+        }
+    }
+}
+
+pub fn interface_to_ipaddr(interface: &str) -> Result<Ipv4Addr, std::io::Error> {
+    let interfaces = pnet_datalink::interfaces();
+    let interface = interfaces
+        .into_iter()
+        .find(|iface| iface.name == interface)
+        .ok_or_else(|| std::io::ErrorKind::NotFound)?;
+
+    let ipaddr = interface
+        .ips
+        .into_iter()
+        .find(|ip| ip.is_ipv4())
+        .ok_or_else(|| std::io::ErrorKind::AddrNotAvailable)?;
+
+
+    if let IpAddr::V4(ipaddr) = ipaddr.ip() {
+        return Ok(ipaddr)
+    }
+
+    Err(Error::from(std::io::ErrorKind::AddrNotAvailable))
+}
+
+fn make_socket(interface: &str, local_address: Option<Ipv4Addr>, local_port: u16, bind_to_device: bool) -> UdpSocket {
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, None).unwrap();
 
-    if let Err(err) = socket.bind_device(Some(interface.as_bytes())) {
-        if matches!(err.raw_os_error(), Some(libc::ENODEV)) {
-            panic!("error binding to device (`{}`): {}", interface, err);
-        } else {
-            panic!("unexpected error binding device: {}", err);
+    if bind_to_device {
+        if let Err(err) = socket.bind_device(Some(interface.as_bytes())) {
+            if matches!(err.raw_os_error(), Some(libc::ENODEV)) {
+                panic!("error binding to device (`{}`): {}", interface, err);
+            } else {
+                panic!("unexpected error binding device: {}", err);
+            }
         }
     }
+
+
+    let local_address = match local_address {
+        Some(local_address) => {
+            local_address
+        }
+        None => {
+            interface_to_ipaddr(interface).unwrap()
+        }
+    };
 
     let address = SocketAddrV4::new(local_address, local_port);
     socket.bind(&address.into()).unwrap();

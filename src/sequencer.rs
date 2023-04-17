@@ -1,21 +1,22 @@
 use std::collections::BTreeMap;
 use std::time::{Duration};
-use tokio::time;
 use crate::Packet;
 
 #[derive(Debug)]
 pub struct Sequencer {
     packet_queue: BTreeMap<usize, Packet>,
     pub next_seq: usize,
-    deadline_ticker: time::Interval,
+    deadline: Duration,
+    last_update: std::time::SystemTime,
 }
 
 impl Sequencer {
     pub fn new(deadline: Duration) -> Self {
-        Sequencer{
+        Sequencer {
             packet_queue: BTreeMap::new(),
             next_seq: 0,
-            deadline_ticker: time::interval(deadline)
+            deadline: deadline,
+            last_update: std::time::SystemTime::now(),
         }
     }
 
@@ -24,7 +25,8 @@ impl Sequencer {
             if *entry.key() == self.next_seq {
                 self.next_seq += 1;
                 let pkt = self.packet_queue.pop_first().unwrap().1;
-                self.deadline_ticker.reset();
+                //self.deadline_ticker.reset();
+                self.set_last_update();
                 return Some(pkt)
             }
         }
@@ -39,10 +41,7 @@ impl Sequencer {
         }
     }
 
-    pub async fn tick(&mut self) {
-        self.deadline_ticker.tick().await;
-
-
+    pub fn advance_queue(&mut self) {
         if !self.packet_queue.is_empty() {
             self.next_seq = *self.packet_queue.first_entry().unwrap().key();
         }
@@ -59,6 +58,15 @@ impl Sequencer {
             }
             None => false
         }
+    }
+
+    fn set_last_update(&mut self) {
+        self.last_update = std::time::SystemTime::now()
+    }
+
+    pub fn is_deadline_exceeded(&self) -> bool {
+        let now = std::time::SystemTime::now();
+        now.duration_since(self.last_update).unwrap().gt(&self.deadline)
     }
 }
 

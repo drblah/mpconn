@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use bytes::BytesMut;
 use etherparse::{InternetSlice, LinkSlice, SlicedPacket};
+use log::{debug, error, warn};
 
 pub enum DirectorType {
     Layer2(Layer2Director),
@@ -29,7 +30,7 @@ impl Layer2Director {
     pub fn learn_path(&mut self, peer_id: u16, packet_bytes: &BytesMut) {
         if let Some(ethernet_source_address) = self.extract_ether_src(packet_bytes) {
             if !self.mac_table.contains_key(&ethernet_source_address) {
-                println!("Inserting new MAC {:?} for peer {}", ethernet_source_address, peer_id);
+                debug!("Inserting new MAC {:?} for peer {}", ethernet_source_address, peer_id);
                 self.mac_table.insert(
                     ethernet_source_address,
                     peer_id,
@@ -64,7 +65,7 @@ impl Layer2Director {
             }
 
             Err(e) => {
-                eprintln!("Error extracting ethernet source from packet: {e}");
+                error!("Error extracting ethernet source from packet: {e}");
                 None
             }
         };
@@ -84,7 +85,7 @@ impl Layer2Director {
             }
 
             Err(e) => {
-                eprintln!("Error extracting ethernet destination from packet: {e}");
+                error!("Error extracting ethernet destination from packet: {e}");
                 None
             }
         };
@@ -105,8 +106,13 @@ impl Layer3Director {
         }
     }
 
-    pub fn insert_route(&mut self, peer_id: u16, address: IpAddr) {
-        self.routing_table.entry(address).or_insert(peer_id);
+    pub fn insert_route(&mut self, peer_id: u16, address: IpAddr) -> bool {
+        if self.routing_table.contains_key(&address) {
+            false
+        } else {
+            self.routing_table.insert(address, peer_id);
+            true
+        }
     }
 
     pub fn get_route(&self, packet_bytes: &BytesMut) -> Option<u16> {
@@ -120,7 +126,7 @@ impl Layer3Director {
     fn extract_destination_address(&self, packet_bytes: &BytesMut) -> Option<IpAddr> {
         match SlicedPacket::from_ip(packet_bytes) {
             Err(e) => {
-                eprintln!("Error learning tun_ip: {}", e);
+                error!("Error learning tun_ip: {}", e);
                 None
             }
 
@@ -130,11 +136,11 @@ impl Layer3Director {
                         Some(IpAddr::V4(ipheader.destination_addr()))
                     }
                     Some(InternetSlice::Ipv6(_, _)) => {
-                        eprintln!("TODO: Handle learning IPv6 route");
+                        warn!("TODO: Handle learning IPv6 route");
                         None
                     }
                     None => {
-                        eprintln!("No IP header detected. Cannot learn route!");
+                        warn!("No IP header detected. Cannot learn route!");
                         None
                     }
                 }
