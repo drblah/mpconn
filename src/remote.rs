@@ -13,19 +13,37 @@ use tokio_util::codec::BytesCodec;
 use tokio_util::udp::UdpFramed;
 use crate::internal_messages::{IncomingUnparsedPacket};
 
+
+/// AsyncRemote is the base trait used to implement Remotes
+/// An AsyncRemote represents the transport layer used to carry
+/// tunnel traffic. All mpconn instances must have at least
+/// 1 Remote defined in order to receive/transmit tunneled
+/// traffic.
 #[async_trait]
 pub trait AsyncRemote: Send {
+    /// Send the buffer of bytes to the destination SocketAddr
     async fn write(&mut self, buffer: Bytes, destination: SocketAddr);
+    /// Wait for new packets to arrive on the transport layer.
+    /// If a packet is received, it is passed along, unparsed
+    /// with information about which hardware interface the packet
+    /// was received on, and the source address.
     async fn read(&mut self) -> Option<IncomingUnparsedPacket>;
+    /// Get the OS level name of the interface the AsyncRemote
+    /// is configured to use.
     fn get_interface(&self) -> String;
 }
 
+/// UDPRemote is used to implement an AsyncRemote
+/// which uses UDP as a transport layer.
 pub struct UDPremote {
+    /// The network interface the AsyncRemote will bind to
     interface: String,
     input_stream: SplitStream<UdpFramed<BytesCodec>>,
     output_stream: SplitSink<UdpFramed<BytesCodec>, (Bytes, SocketAddr)>,
 }
 
+/// UDPLz4Remote builds in top of the UDPRemote by compressing
+/// tunnel packets before serializing them.
 pub struct UDPLz4Remote {
     inner_udp_remote: UDPremote
 }
@@ -174,6 +192,13 @@ pub fn interface_to_ipaddr(interface: &str) -> Result<Ipv4Addr, std::io::Error> 
     Err(Error::from(std::io::ErrorKind::AddrNotAvailable))
 }
 
+
+/// This function makes a tokio UdpSocket which is bound to the specified IP and port
+/// Optionally, it can also bind to a specific network device. Binding ensures this
+/// socket will *always* use the specific interface, and the routed belonging to that interface.
+/// This is useful when multiple interfaces can route to the same destination, but you want
+/// to control which interface is used. *NB*: The bind to device socket option is only supported
+/// on Linux.
 fn make_socket(interface: &str, local_address: Option<Ipv4Addr>, local_port: u16, bind_to_device: bool) -> UdpSocket {
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, None).unwrap();
 
