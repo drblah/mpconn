@@ -78,10 +78,16 @@ function mpconnudp.dissector(buffer, pinfo, tree)
         local peer_id_len = peer_id_unzigzaged[1]
         payload_tree:add_le(field_peer_id, peer_id_unzigzaged[2])
 
-        local tun_ip_pos = peer_id_pos + peer_id_len + 1 -- TODO: handle if the IP field is not filled
-        local tun_ip_len = 4
-        local tun_ip_buffer = buffer(tun_ip_pos, tun_ip_len)
-        payload_tree:add(field_tunnel_ip, tun_ip_buffer)
+        -- Check if tunnel IP is present
+        local option_byte_buffer = buffer(peer_id_pos + peer_id_len, 1)
+        local option_byte = option_byte_buffer:le_uint()
+
+        if option_byte == 1 then
+            local tun_ip_pos = peer_id_pos + peer_id_len + 1
+            local tun_ip_len = 4
+            local tun_ip_buffer = buffer(tun_ip_pos, tun_ip_len)
+            payload_tree:add(field_tunnel_ip, tun_ip_buffer)
+        end
 
     end
 end
