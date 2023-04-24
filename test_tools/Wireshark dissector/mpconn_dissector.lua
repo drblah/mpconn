@@ -79,6 +79,11 @@ function mpconnudp.dissector(buffer, pinfo, tree)
     else
         local peer_id_pos = message_type_pos + message_type_len
         local peer_id_maxlen = 3
+        -- In case the peer ID is short, we should only read until the end of the Tvb
+        if buffer:reported_len() - peer_id_pos < 3 then
+            peer_id_maxlen = 2
+        end
+
         local peer_id_unzigzaged = unzigzag(buffer(peer_id_pos, peer_id_maxlen))
         local peer_id_len = peer_id_unzigzaged[1]
         payload_tree:add_le(field_peer_id, peer_id_unzigzaged[2])
