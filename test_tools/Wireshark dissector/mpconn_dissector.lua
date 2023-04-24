@@ -42,32 +42,41 @@ function mpconnudp.dissector(buffer, pinfo, tree)
     local message_type_pos = 0
     local message_type_len = 1
     local message_type_buffer = buffer(message_type_pos, message_type_len)
+    local message_type = message_type_buffer:le_uint()
     payload_tree:add_le(field_msg, message_type_buffer)
 
-    local seqnr_pos = message_type_pos + message_type_len
-    local seqnr_maxlen = 8
-    local unzigzaged = unzigzag(buffer(seqnr_pos, seqnr_maxlen))
-    local seqnr_len = unzigzaged[1]
-    payload_tree:add_le(field_seqnr, unzigzaged[2])
+    if message_type == 0 then
+        local seqnr_pos = message_type_pos + message_type_len
+        local seqnr_maxlen = 8
+        local unzigzaged = unzigzag(buffer(seqnr_pos, seqnr_maxlen))
+        local seqnr_len = unzigzaged[1]
+        payload_tree:add_le(field_seqnr, unzigzaged[2])
 
-    local peer_id_pos = seqnr_pos + seqnr_len
-    local peer_id_maxlen = 3
-    local peer_id_unzigzaged = unzigzag(buffer(peer_id_pos, peer_id_maxlen))
-    local peer_id_len = peer_id_unzigzaged[1]
-    payload_tree:add_le(field_peer_id, peer_id_unzigzaged[2])
+        local peer_id_pos = seqnr_pos + seqnr_len
+        local peer_id_maxlen = 3
+        local peer_id_unzigzaged = unzigzag(buffer(peer_id_pos, peer_id_maxlen))
+        local peer_id_len = peer_id_unzigzaged[1]
+        payload_tree:add_le(field_peer_id, peer_id_unzigzaged[2])
 
-    local msg_length_pos = peer_id_pos + peer_id_len
-    local msg_length_maxlen = 8
-    local msg_length_buffer = unzigzag(buffer(msg_length_pos, msg_length_maxlen))
-    local msg_length_len = msg_length_buffer[1]
-    payload_tree:add_le(field_msg_length, msg_length_buffer[2])
+        local msg_length_pos = peer_id_pos + peer_id_len
+        local msg_length_maxlen = 8
+        local msg_length_buffer = unzigzag(buffer(msg_length_pos, msg_length_maxlen))
+        local msg_length_len = msg_length_buffer[1]
+        payload_tree:add_le(field_msg_length, msg_length_buffer[2])
 
-    local ip_pos = msg_length_pos + msg_length_len
-    local ip_len = buffer:len() - ip_pos
-    local ip_buffer = buffer(ip_pos, ip_len)
+        local ip_pos = msg_length_pos + msg_length_len
+        local ip_len = buffer:len() - ip_pos
+        local ip_buffer = buffer(ip_pos, ip_len)
 
-    --Dissector.get("eth_withoutfcs"):call(ip_buffer:tvb(), pinfo, tree)
-    Dissector.get("ip"):call(ip_buffer:tvb(), pinfo, tree)
+        --Dissector.get("eth_withoutfcs"):call(ip_buffer:tvb(), pinfo, tree)
+        Dissector.get("ip"):call(ip_buffer:tvb(), pinfo, tree)
+    else
+        local peer_id_pos = message_type_pos + message_type_len
+        local peer_id_maxlen = 3
+        local peer_id_unzigzaged = unzigzag(buffer(peer_id_pos, peer_id_maxlen))
+        local peer_id_len = peer_id_unzigzaged[1]
+        payload_tree:add_le(field_peer_id, peer_id_unzigzaged[2])
+    end
 end
 
 --we register our protocol on UDP port 10000
