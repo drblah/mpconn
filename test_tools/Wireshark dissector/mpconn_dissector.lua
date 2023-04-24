@@ -5,9 +5,8 @@ local field_msg = ProtoField.uint8("mpconnudp.msg_type", "Msg type", base.HEX)
 local field_seqnr = ProtoField.uint64("mpconnudp.seqnr", "Seq Nr.", base.DEC)
 local field_peer_id = ProtoField.uint16("mpconnudp.peer_id", "Peer ID", base.DEC)
 local field_msg_length = ProtoField.uint64("mpconnudp.msg_len", "Msg Len", base.DEC)
-local field_ip = ProtoField.bytes("mpconnudp.ip", "IP")
 local field_tunnel_ip = ProtoField.ipv4("mpconnudp.tun_ip", "Tunnel IP")
-mpconnudp.fields = { field_msg, field_seqnr, field_peer_id, field_msg_length, field_ip, field_tunnel_ip }
+mpconnudp.fields = { field_msg, field_seqnr, field_peer_id, field_msg_length, field_tunnel_ip }
 
 -- Reverse of zigzag: https://docs.rs/bincode/latest/bincode/config/struct.VarintEncoding.html
 function unzigzag(buffer)
@@ -65,12 +64,18 @@ function mpconnudp.dissector(buffer, pinfo, tree)
         local msg_length_len = msg_length_buffer[1]
         payload_tree:add_le(field_msg_length, msg_length_buffer[2])
 
-        local ip_pos = msg_length_pos + msg_length_len
-        local ip_len = buffer:len() - ip_pos
-        local ip_buffer = buffer(ip_pos, ip_len)
+        local payload_pos = msg_length_pos + msg_length_len
+        local payload_len = buffer:len() - payload_pos
+        local payload_buffer = buffer(payload_pos, payload_len)
 
         --Dissector.get("eth_withoutfcs"):call(ip_buffer:tvb(), pinfo, tree)
-        Dissector.get("ip"):call(ip_buffer:tvb(), pinfo, tree)
+        -- Try to dissect as IP, else fall back to Ethernet
+        local ipv4_byte = buffer(payload_pos, 1):le_uint()
+        if ipv4_byte == 0x45 then
+            Dissector.get("ip"):call(payload_buffer:tvb(), pinfo, tree)
+        else
+            Dissector.get("eth_withoutfcs"):call(payload_buffer:tvb(), pinfo, tree)
+        end
     else
         local peer_id_pos = message_type_pos + message_type_len
         local peer_id_maxlen = 3
