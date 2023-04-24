@@ -6,7 +6,8 @@ local field_seqnr = ProtoField.uint64("mpconnudp.seqnr", "Seq Nr.", base.DEC)
 local field_peer_id = ProtoField.uint16("mpconnudp.peer_id", "Peer ID", base.DEC)
 local field_msg_length = ProtoField.uint64("mpconnudp.msg_len", "Msg Len", base.DEC)
 local field_ip = ProtoField.bytes("mpconnudp.ip", "IP")
-mpconnudp.fields = { field_msg, field_seqnr, field_peer_id, field_msg_length, field_ip }
+local field_tunnel_ip = ProtoField.ipv4("mpconnudp.tun_ip", "Tunnel IP")
+mpconnudp.fields = { field_msg, field_seqnr, field_peer_id, field_msg_length, field_ip, field_tunnel_ip }
 
 -- Reverse of zigzag: https://docs.rs/bincode/latest/bincode/config/struct.VarintEncoding.html
 function unzigzag(buffer)
@@ -14,7 +15,7 @@ function unzigzag(buffer)
     if buffer(0, 1):le_uint() < 251 then
         return { 1, buffer(0, 1) }
 
-    -- Decode 251 <= u < 2**16
+        -- Decode 251 <= u < 2**16
     elseif buffer(0, 1):le_uint() == 251 then
         return { 3, buffer(1, 2) }
 
@@ -76,6 +77,12 @@ function mpconnudp.dissector(buffer, pinfo, tree)
         local peer_id_unzigzaged = unzigzag(buffer(peer_id_pos, peer_id_maxlen))
         local peer_id_len = peer_id_unzigzaged[1]
         payload_tree:add_le(field_peer_id, peer_id_unzigzaged[2])
+
+        local tun_ip_pos = peer_id_pos + peer_id_len + 1 -- TODO: handle if the IP field is not filled
+        local tun_ip_len = 4
+        local tun_ip_buffer = buffer(tun_ip_pos, tun_ip_len)
+        payload_tree:add(field_tunnel_ip, tun_ip_buffer)
+
     end
 end
 
