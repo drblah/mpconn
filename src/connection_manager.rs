@@ -407,7 +407,7 @@ impl ConnectionManager {
         }
     }
 
-    async fn write_interface_log(if_log: &mut BufWriter<File>, receiver_interface: &str, sequence_number: usize) {
+    async fn write_interface_log(if_log: &mut BufWriter<File>, receiver_interface: &str, sequence_number: u64) {
         let time_stamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos();
         let log_string = format!("{},{},{}\n", time_stamp, sequence_number, receiver_interface);
         if_log.write_all(log_string.as_ref()).await.unwrap();
