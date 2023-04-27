@@ -13,7 +13,7 @@ pub struct PeerList {
 #[derive(Debug, )]
 pub struct Peer {
     connections: HashMap<SocketAddr, SystemTime>,
-    tx_counter: usize,
+    tx_counter: u64,
     sequencer: Sequencer,
 }
 
@@ -131,7 +131,7 @@ impl PeerList {
         }
     }
 
-    pub fn get_peer_tx_counter(&self, peer_id: u16) -> usize {
+    pub fn get_peer_tx_counter(&self, peer_id: u16) -> u64 {
         self.peers.get(&peer_id).unwrap().tx_counter
     }
 

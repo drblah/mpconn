@@ -4,8 +4,8 @@ use crate::Packet;
 
 #[derive(Debug)]
 pub struct Sequencer {
-    packet_queue: BTreeMap<usize, Packet>,
-    pub next_seq: usize,
+    packet_queue: BTreeMap<u64, Packet>,
+    pub next_seq: u64,
     deadline: Duration,
     last_update: std::time::SystemTime,
 }
