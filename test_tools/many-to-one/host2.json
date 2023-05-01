@@ -2,7 +2,6 @@
   "peers": [
   ],
   "keep_alive_interval": 10,
-  "reorder": true,
   "peer_id": 1337,
   "local": {
     "type": "Layer3",
