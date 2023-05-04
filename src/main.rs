@@ -1,5 +1,7 @@
 #![feature(io_error_more)]
+#![feature(hash_drain_filter)]
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use log::{debug, error, log_enabled, info, Level};
 
@@ -15,6 +17,7 @@ use crate::connection_manager::ConnectionManager;
 use crate::internal_messages::{IncomingUnparsedPacket, OutgoingUDPPacket};
 use crate::local_manager::LocalManager;
 use crate::remote_manager::RemoteManager;
+use crate::settings::RemoteTypes;
 
 mod async_pcap;
 mod local;
@@ -40,6 +43,16 @@ struct Args {
     debug: bool
 }
 
+fn get_remote_interface_name(remote: &RemoteTypes) -> String {
+    match remote {
+        RemoteTypes::UDP { iface, listen_addr, listen_port, bind_to_device } => {
+            iface.clone()
+        }
+        RemoteTypes::UDPLz4 { iface, listen_addr, listen_port, bind_to_device } => {
+            iface.clone()
+        }
+    }
+}
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -65,6 +78,17 @@ async fn main() {
 
     let channel_capacity = 128;
 
+    let mut packets_to_remotes_tx: HashMap<String, Arc<mpsc::Sender<OutgoingUDPPacket>>> = HashMap::new();
+    let mut packets_to_remotes_rx: HashMap<String, Arc<mpsc::Receiver<OutgoingUDPPacket>>> = HashMap::new();
+
+    for remote in &settings.remotes {
+        let dev_name = get_remote_interface_name(remote);
+        let (tx, rx) = mpsc::channel::<OutgoingUDPPacket>(channel_capacity);
+
+        packets_to_remotes_tx.insert(dev_name.clone(), Arc::new(tx));
+        packets_to_remotes_rx.insert(dev_name, Arc::new(rx));
+    }
+
     let (outgoing_broadcast_tx, _outgoing_broadcast_rx) = broadcast::channel::<OutgoingUDPPacket>(channel_capacity);
     let (raw_udp_tx, raw_udp_rx) = mpsc::channel::<IncomingUnparsedPacket>(channel_capacity);
     let (packets_to_local_tx, packets_to_local_rx) = mpsc::channel::<Vec<u8>>(channel_capacity);
@@ -73,7 +97,7 @@ async fn main() {
 
     let mut remote_manager = RemoteManager::new(
         settings.clone(),
-        &outgoing_broadcast_tx,
+        packets_to_remotes_rx,
         raw_udp_tx,
     );
 
