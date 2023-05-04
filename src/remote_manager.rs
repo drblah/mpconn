@@ -1,9 +1,12 @@
+use std::collections::HashMap;
+use std::sync::Arc;
 use bytes::Bytes;
 use log::error;
 use tokio::select;
 use tokio::sync::{broadcast, mpsc};
 use tokio::sync::broadcast::error::RecvError;
 use tokio::task::JoinHandle;
+use crate::get_remote_interface_name;
 use crate::internal_messages::{IncomingUnparsedPacket, OutgoingUDPPacket};
 use crate::remote::{AsyncRemote, UDPremote, UDPLz4Remote};
 use crate::settings::{RemoteTypes, SettingsFile};
@@ -15,39 +18,25 @@ pub struct RemoteManager {
 
 impl RemoteManager {
     // new takes a SettingsFile, a tokio broadcast channel receiver, and a tokio mpsc channel sender.
-    pub fn new(settings: SettingsFile, udp_output_broadcast_to_remotes: &broadcast::Sender<OutgoingUDPPacket>, raw_udp_from_remotes: mpsc::Sender<IncomingUnparsedPacket>) -> Self {
+    pub fn new(settings: SettingsFile, mut udp_output_broadcast_to_remotes: HashMap<String, Arc<mpsc::Receiver<OutgoingUDPPacket>>>, raw_udp_from_remotes: mpsc::Sender<IncomingUnparsedPacket>) -> Self {
         let mut tasks = Vec::new();
 
         for dev in &settings.remotes {
-            let mut bc = udp_output_broadcast_to_remotes.subscribe();
+            let mut bc = udp_output_broadcast_to_remotes.get_mut(get_remote_interface_name(dev).as_str()).unwrap().clone();
+
             let dev = dev.clone();
             let mpsc_channel = raw_udp_from_remotes.clone();
             let mut remote = Self::make_remote(dev.clone());
 
             tasks.push(
                 tokio::spawn(async move {
+                    let bc = Arc::get_mut(&mut bc).unwrap();
                     loop {
                         select! {
                             outgoing = bc.recv() => {
-                                match outgoing {
-                                    Ok(outgoing) => {
-                                        remote.write( Bytes::from(outgoing.packet_bytes), outgoing.destination).await
-                                    }
-                                    Err(e) => {
-                                        match e {
-                                            RecvError::Lagged(lagg) => {
-                                                error!("RemoteManager: Cannot keep up with sending packets! Dropping {}", lagg);
-                                            }
-                                            RecvError::Closed => {
-                                                panic!("RemoteManager: Broadcast channel closed unexpectedly!")
-                                            }
-                                        }
-
-
-                                    }
+                                if let Some(outgoing) = outgoing {
+                                    remote.write( Bytes::from(outgoing.packet_bytes), outgoing.destination).await
                                 }
-
-
                             }
 
                             incoming = remote.read() => {
