@@ -18,11 +18,11 @@ pub struct RemoteManager {
 
 impl RemoteManager {
     // new takes a SettingsFile, a tokio broadcast channel receiver, and a tokio mpsc channel sender.
-    pub fn new(settings: SettingsFile, mut udp_output_broadcast_to_remotes: HashMap<String, Arc<mpsc::Receiver<OutgoingUDPPacket>>>, raw_udp_from_remotes: mpsc::Sender<IncomingUnparsedPacket>) -> Self {
+    pub fn new(settings: SettingsFile, mut packets_to_remotes_rx: HashMap<String, Arc<mpsc::Receiver<OutgoingUDPPacket>>>, raw_udp_from_remotes: mpsc::Sender<IncomingUnparsedPacket>) -> Self {
         let mut tasks = Vec::new();
 
         for dev in &settings.remotes {
-            let mut bc = udp_output_broadcast_to_remotes.get_mut(get_remote_interface_name(dev).as_str()).unwrap().clone();
+            let mut bc = packets_to_remotes_rx.get_mut(get_remote_interface_name(dev).as_str()).unwrap().clone();
 
             let dev = dev.clone();
             let mpsc_channel = raw_udp_from_remotes.clone();
