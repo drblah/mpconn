@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -22,7 +23,7 @@ type BincodeSettings = WithOtherTrailing<WithOtherIntEncoding<DefaultOptions, Va
 pub struct ConnectionManager {
     bincode_config: BincodeSettings,
     interface_logger: Option<BufWriter<File>>,
-    udp_output_broadcast_to_remotes: broadcast::Sender<OutgoingUDPPacket>,
+    udp_output_broadcast_to_remotes: HashMap<String, Arc<mpsc::Sender<OutgoingUDPPacket>>>,
     raw_udp_from_remotes: mpsc::Receiver<IncomingUnparsedPacket>,
     packets_to_local: mpsc::Sender<Vec<u8>>,
     packets_from_local: mpsc::Receiver<Vec<u8>>,
@@ -39,7 +40,7 @@ impl ConnectionManager {
     pub fn new(
         settings: SettingsFile,
         interface_logger: Option<BufWriter<File>>,
-        udp_output_broadcast_to_remotes: broadcast::Sender<OutgoingUDPPacket>,
+        udp_output_broadcast_to_remotes: HashMap<String, Arc<mpsc::Sender<OutgoingUDPPacket>>>,
         raw_udp_from_remotes: mpsc::Receiver<IncomingUnparsedPacket>,
         packets_to_local: mpsc::Sender<Vec<u8>>,
         packets_from_local: mpsc::Receiver<Vec<u8>>,
@@ -269,7 +270,9 @@ impl ConnectionManager {
                                     packet_bytes: serialized_packet.clone(),
                                 };
 
-                                self.udp_output_broadcast_to_remotes.send(outgoing_packet).unwrap();
+                                for channel in self.udp_output_broadcast_to_remotes.values_mut() {
+                                    channel.send(outgoing_packet.clone()).await.unwrap()
+                                }
                             }
                         }
                         traffic_director::Path::Broadcast => {
@@ -295,7 +298,9 @@ impl ConnectionManager {
                                         packet_bytes: serialized_packet.clone(),
                                     };
 
-                                    self.udp_output_broadcast_to_remotes.send(outgoing_packet).unwrap();
+                                    for channel in self.udp_output_broadcast_to_remotes.values_mut() {
+                                        channel.send(outgoing_packet.clone()).await.unwrap()
+                                    }
                                 }
                             }
                         }
@@ -323,7 +328,9 @@ impl ConnectionManager {
                             packet_bytes: serialized_packet.clone(),
                         };
 
-                        self.udp_output_broadcast_to_remotes.send(outgoing_packet).unwrap();
+                        for channel in self.udp_output_broadcast_to_remotes.values_mut() {
+                            channel.send(outgoing_packet.clone()).await.unwrap()
+                        }
                     }
                 }
             }
@@ -379,7 +386,9 @@ impl ConnectionManager {
                 packet_bytes: serialized_packet.clone(),
             };
 
-            self.udp_output_broadcast_to_remotes.send(outgoing_packet).unwrap();
+            for channel in self.udp_output_broadcast_to_remotes.values_mut() {
+                channel.send(outgoing_packet.clone()).await.unwrap()
+            }
         }
     }
 
@@ -403,7 +412,9 @@ impl ConnectionManager {
                 packet_bytes: serialized_packet.clone(),
             };
 
-            self.udp_output_broadcast_to_remotes.send(outgoing_packet).unwrap();
+            for channel in self.udp_output_broadcast_to_remotes.values_mut() {
+                channel.send(outgoing_packet.clone()).await.unwrap()
+            }
         }
     }
 
