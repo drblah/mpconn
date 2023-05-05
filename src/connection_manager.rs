@@ -10,7 +10,7 @@ use crate::messages::Packet;
 use tokio::{select, time};
 use tokio::fs::File;
 use tokio::io::{AsyncWriteExt, BufWriter};
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::mpsc;
 use crate::internal_messages::{IncomingUnparsedPacket, OutgoingUDPPacket};
 use crate::messages::{Keepalive, Messages};
 use crate::peer_list::{PeerList};
