@@ -23,10 +23,10 @@ type BincodeSettings = WithOtherTrailing<WithOtherIntEncoding<DefaultOptions, Va
 pub struct ConnectionManager {
     bincode_config: BincodeSettings,
     interface_logger: Option<BufWriter<File>>,
-    udp_output_broadcast_to_remotes: HashMap<String, Arc<mpsc::Sender<OutgoingUDPPacket>>>,
-    raw_udp_from_remotes: mpsc::Receiver<IncomingUnparsedPacket>,
-    packets_to_local: mpsc::Sender<Vec<u8>>,
-    packets_from_local: mpsc::Receiver<Vec<u8>>,
+    packets_to_remotes_tx: HashMap<String, Arc<mpsc::Sender<OutgoingUDPPacket>>>,
+    packets_from_remotes_rx: mpsc::Receiver<IncomingUnparsedPacket>,
+    packets_to_local_tx: mpsc::Sender<Vec<u8>>,
+    packets_from_local_rx: mpsc::Receiver<Vec<u8>>,
     peer_list: PeerList,
     traffic_director: DirectorType,
     own_peer_id: u16,
@@ -40,10 +40,10 @@ impl ConnectionManager {
     pub fn new(
         settings: SettingsFile,
         interface_logger: Option<BufWriter<File>>,
-        udp_output_broadcast_to_remotes: HashMap<String, Arc<mpsc::Sender<OutgoingUDPPacket>>>,
-        raw_udp_from_remotes: mpsc::Receiver<IncomingUnparsedPacket>,
-        packets_to_local: mpsc::Sender<Vec<u8>>,
-        packets_from_local: mpsc::Receiver<Vec<u8>>,
+        packets_to_remotes_tx: HashMap<String, Arc<mpsc::Sender<OutgoingUDPPacket>>>,
+        packets_from_remotes_rx: mpsc::Receiver<IncomingUnparsedPacket>,
+        packets_to_local_tx: mpsc::Sender<Vec<u8>>,
+        packets_from_local_rx: mpsc::Receiver<Vec<u8>>,
     ) -> ConnectionManager
     {
         let bincode_config = bincode::options()
@@ -78,10 +78,10 @@ impl ConnectionManager {
         ConnectionManager {
             bincode_config,
             interface_logger,
-            udp_output_broadcast_to_remotes,
-            raw_udp_from_remotes,
-            packets_to_local,
-            packets_from_local,
+            packets_to_remotes_tx,
+            packets_from_remotes_rx,
+            packets_to_local_tx,
+            packets_from_local_rx,
             peer_list,
             traffic_director,
             own_peer_id,
@@ -99,7 +99,7 @@ impl ConnectionManager {
                 select! {
 
                     // Await incoming packets from the transport layer. Aka Remotes
-                    new_raw_udp_packet = mut_self.raw_udp_from_remotes.recv() => {
+                    new_raw_udp_packet = mut_self.packets_from_remotes_rx.recv() => {
 
                         // Did we actually get a packet or a None?
                         // In case of None, it means the channel was closed and something
@@ -111,12 +111,12 @@ impl ConnectionManager {
                                 ).await;
                             }
                             None => {
-                                panic!("ConnectionManager: raw_udp_from_remotes channel was closed");
+                                panic!("ConnectionManager: packets_from_remotes_rx channel was closed");
                             }
                         }
                     }
 
-                    new_packet_from_local = mut_self.packets_from_local.recv() => {
+                    new_packet_from_local = mut_self.packets_from_local_rx.recv() => {
 
                         match new_packet_from_local {
                             Some(new_packet_from_local) => {
@@ -141,7 +141,7 @@ impl ConnectionManager {
                                     while peer_sequencer.have_next_packet() {
                                         if let Some(next_packet) = peer_sequencer.get_next_packet() {
 
-                                            mut_self.packets_to_local.send(next_packet.bytes).await.unwrap()
+                                            mut_self.packets_to_local_tx.send(next_packet.bytes).await.unwrap()
                                         }
                                 }
                                 }
@@ -237,7 +237,7 @@ impl ConnectionManager {
                     }
 
 
-                    self.packets_to_local.send(next_packet.bytes).await.unwrap()
+                    self.packets_to_local_tx.send(next_packet.bytes).await.unwrap()
                 }
             }
         }
@@ -270,7 +270,7 @@ impl ConnectionManager {
                                     packet_bytes: serialized_packet.clone(),
                                 };
 
-                                for channel in self.udp_output_broadcast_to_remotes.values_mut() {
+                                for channel in self.packets_to_remotes_tx.values_mut() {
                                     channel.send(outgoing_packet.clone()).await.unwrap()
                                 }
                             }
@@ -298,7 +298,7 @@ impl ConnectionManager {
                                         packet_bytes: serialized_packet.clone(),
                                     };
 
-                                    for channel in self.udp_output_broadcast_to_remotes.values_mut() {
+                                    for channel in self.packets_to_remotes_tx.values_mut() {
                                         channel.send(outgoing_packet.clone()).await.unwrap()
                                     }
                                 }
@@ -328,7 +328,7 @@ impl ConnectionManager {
                             packet_bytes: serialized_packet.clone(),
                         };
 
-                        for channel in self.udp_output_broadcast_to_remotes.values_mut() {
+                        for channel in self.packets_to_remotes_tx.values_mut() {
                             channel.send(outgoing_packet.clone()).await.unwrap()
                         }
                     }
@@ -386,7 +386,7 @@ impl ConnectionManager {
                 packet_bytes: serialized_packet.clone(),
             };
 
-            for channel in self.udp_output_broadcast_to_remotes.values_mut() {
+            for channel in self.packets_to_remotes_tx.values_mut() {
                 channel.send(outgoing_packet.clone()).await.unwrap()
             }
         }
@@ -412,7 +412,7 @@ impl ConnectionManager {
                 packet_bytes: serialized_packet.clone(),
             };
 
-            for channel in self.udp_output_broadcast_to_remotes.values_mut() {
+            for channel in self.packets_to_remotes_tx.values_mut() {
                 channel.send(outgoing_packet.clone()).await.unwrap()
             }
         }
