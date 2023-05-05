@@ -45,10 +45,10 @@ struct Args {
 
 fn get_remote_interface_name(remote: &RemoteTypes) -> String {
     match remote {
-        RemoteTypes::UDP { iface, listen_addr, listen_port, bind_to_device } => {
+        RemoteTypes::UDP { iface, listen_addr: _, listen_port: _, bind_to_device: _ } => {
             iface.clone()
         }
-        RemoteTypes::UDPLz4 { iface, listen_addr, listen_port, bind_to_device } => {
+        RemoteTypes::UDPLz4 { iface, listen_addr: _, listen_port: _, bind_to_device: _ } => {
             iface.clone()
         }
     }
@@ -89,7 +89,6 @@ async fn main() {
         packets_to_remotes_rx.insert(dev_name, Arc::new(rx));
     }
 
-    let (outgoing_broadcast_tx, _outgoing_broadcast_rx) = broadcast::channel::<OutgoingUDPPacket>(channel_capacity);
     let (raw_udp_tx, raw_udp_rx) = mpsc::channel::<IncomingUnparsedPacket>(channel_capacity);
     let (packets_to_local_tx, packets_to_local_rx) = mpsc::channel::<Vec<u8>>(channel_capacity);
     let (packets_from_local_tx, packets_from_local_rx) = mpsc::channel::<Vec<u8>>(channel_capacity);
@@ -104,7 +103,7 @@ async fn main() {
     let connection_manager = ConnectionManager::new(
         settings.clone(),
         interface_logger,
-        outgoing_broadcast_tx,
+        packets_to_remotes_tx,
         raw_udp_rx,
         packets_to_local_tx,
         packets_from_local_rx,
