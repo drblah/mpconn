@@ -1,7 +1,8 @@
 use std::sync::Arc;
-use linux_info::network::modem_manager::{Modem, ModemManager};
-use anyhow::Result;
+use linux_info::network::modem_manager::{Modem, ModemManager, SignalNr5g};
+use anyhow::{bail, Error, Result};
 use async_trait::async_trait;
+use tokio::task::spawn_blocking;
 
 
 enum MetricType {
@@ -10,40 +11,51 @@ enum MetricType {
 
 #[async_trait]
 trait Metric {
-    async fn get(self: Arc<Self>) -> Result<MetricType>;
+    async fn get(&self) -> Result<MetricType>;
 }
 
 struct Nr5gRsrp {
-    modem: Modem,
+    interface: String
 }
 
 impl Nr5gRsrp {
     fn new(interface: String) -> Result<Self> {
-        let modem_manager = ModemManager::connect()?;
-        let mut this_modem: Option<Modem> = None;
-
-
-        for modem in modem_manager.modems()? {
-            if modem.device()? == interface {
-                this_modem = Some(modem);
-            }
-        }
-
         Ok(Nr5gRsrp {
-            modem: this_modem.unwrap()
+            interface
         })
     }
 }
 
 #[async_trait]
 impl Metric for Nr5gRsrp {
-    async fn get(self: Arc<Self>) -> Result<MetricType> {
-        let signal_info = self.modem.signal_nr5g()?;
+    async fn get(&self) -> Result<MetricType> {
+        let interface = self.interface.clone();
 
-        Ok(
-            MetricType::Nr5gRsrp(signal_info.rsrp)
-        )
+        let rsrp = spawn_blocking(move || {
+            let rsrp_result = Self::get_rsrp(interface);
+
+            match rsrp_result {
+                Ok(rsrp_value) => Ok(rsrp_value),
+                Err(e) => Err(Error::from(e))
+            }
+        }).await?;
+
+        Ok(MetricType::Nr5gRsrp(rsrp?))
     }
 }
 
+impl Nr5gRsrp {
+    fn get_rsrp(interface: String) -> Result<f64> {
+        let modem_manager = ModemManager::connect()?;
 
+        for modem in modem_manager.modems()? {
+            if modem.device()? == interface {
+                let nr5g_signals = modem.signal_nr5g()?;
+
+                return Ok(nr5g_signals.rsrp)
+            }
+        }
+
+        bail!("No modem with name: {} found", interface)
+    }
+}
