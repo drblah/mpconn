@@ -5,21 +5,21 @@ use async_trait::async_trait;
 use tokio::task::spawn_blocking;
 
 
-enum MetricType {
+pub enum MetricType {
     Nr5gRsrp(f64)
 }
 
 #[async_trait]
-trait Metric {
+pub trait Metric: Send {
     async fn get(&self) -> Result<MetricType>;
 }
 
-struct Nr5gRsrp {
-    interface: String
+pub struct Nr5gRsrp {
+    interface: String,
 }
 
 impl Nr5gRsrp {
-    fn new(interface: String) -> Result<Self> {
+    pub fn new(interface: String) -> Result<Self> {
         Ok(Nr5gRsrp {
             interface
         })

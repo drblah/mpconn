@@ -12,6 +12,7 @@ use tokio::net::UdpSocket;
 use tokio_util::codec::BytesCodec;
 use tokio_util::udp::UdpFramed;
 use crate::internal_messages::{IncomingUnparsedPacket};
+use crate::nic_metric::{Metric, Nr5gRsrp};
 
 
 /// AsyncRemote is the base trait used to implement Remotes
@@ -40,6 +41,7 @@ pub struct UDPremote {
     interface: String,
     input_stream: SplitStream<UdpFramed<BytesCodec>>,
     output_stream: SplitSink<UdpFramed<BytesCodec>, (Bytes, SocketAddr)>,
+    metric: Box<dyn Metric>
 }
 
 /// UDPLz4Remote builds in top of the UDPRemote by compressing
@@ -99,9 +101,10 @@ impl UDPremote {
         let (writer, reader) = socket.split();
 
         UDPremote {
-            interface: iface,
+            interface: iface.clone(),
             input_stream: reader,
             output_stream: writer,
+            metric: Box::new(Nr5gRsrp::new(iface).unwrap()),
         }
     }
 }
@@ -160,9 +163,10 @@ impl UDPLz4Remote {
         let (writer, reader) = socket.split();
 
         let inner = UDPremote {
-            interface: iface,
+            interface: iface.clone(),
             input_stream: reader,
             output_stream: writer,
+            metric: Box::new(Nr5gRsrp::new(iface).unwrap()),
         };
 
         UDPLz4Remote {
