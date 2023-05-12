@@ -9,6 +9,7 @@ use std::net::{IpAddr, UdpSocket as std_udp};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use log::error;
 use tokio::net::UdpSocket;
+use tokio::sync::watch::Receiver;
 use tokio_util::codec::BytesCodec;
 use tokio_util::udp::UdpFramed;
 use crate::internal_messages::{IncomingUnparsedPacket};
@@ -33,7 +34,7 @@ pub trait AsyncRemote: Send {
     /// is configured to use.
     fn get_interface(&self) -> String;
 
-    async fn get_metric(&mut self) -> MetricValue;
+    fn get_metric_channel(&self) -> Receiver<MetricValue>;
 }
 
 /// UDPRemote is used to implement an AsyncRemote
@@ -87,10 +88,10 @@ impl AsyncRemote for UDPremote {
         self.interface.clone()
     }
 
-    async fn get_metric(&mut self) -> MetricValue {
+    fn get_metric_channel(&self) -> Receiver<MetricValue> {
         match self.metrics {
-            MetricType::Nr5gRsrp(ref mut nr_5g_rsrp) => {
-                nr_5g_rsrp.get().await
+            MetricType::Nr5gRsrp(ref nr_5g_rsrp) => {
+                nr_5g_rsrp.get_watch_reader()
             }
         }
     }
@@ -156,10 +157,10 @@ impl AsyncRemote for UDPLz4Remote {
         self.inner_udp_remote.interface.clone()
     }
 
-    async fn get_metric(&mut self) -> MetricValue {
+    fn get_metric_channel(&self) -> Receiver<MetricValue> {
         match self.inner_udp_remote.metrics {
-            MetricType::Nr5gRsrp(ref mut nr_5g_rsrp) => {
-                nr_5g_rsrp.get().await
+            MetricType::Nr5gRsrp(ref nr_5g_rsrp) => {
+                nr_5g_rsrp.get_watch_reader()
             }
         }
     }

@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
 use bytes::Bytes;
 use log::{debug};
-use tokio::{select, time};
+use tokio::{select};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use crate::get_remote_interface_name;
@@ -28,11 +27,12 @@ impl RemoteManager {
             let dev = dev.clone();
             let mpsc_channel = raw_udp_from_remotes.clone();
             let mut remote = Self::make_remote(dev.clone());
+            let mut metric_channel = remote.get_metric_channel();
 
             tasks.push(
                 tokio::spawn(async move {
                     let bc = Arc::get_mut(&mut bc).unwrap();
-                    let mut metric_interval = time::interval(Duration::from_secs(1));
+
                     loop {
                         select! {
                             outgoing = bc.recv() => {
@@ -46,10 +46,10 @@ impl RemoteManager {
                                 mpsc_channel.send(incoming).await.unwrap();
                             }
 
-                            _ = metric_interval.tick() => {
+                            _ = metric_channel.changed() => {
                                 debug!("metric tick!");
-                                let test = remote.get_metric().await;
-                                match test {
+                                let new_metric = metric_channel.borrow().clone();
+                                match new_metric {
                                         MetricValue::Nr5gRsrpValue(rsrp) => {
                                             debug!("{}", rsrp);
                                         }
