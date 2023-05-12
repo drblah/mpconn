@@ -1,12 +1,14 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use bytes::Bytes;
-use log::error;
-use tokio::select;
+use log::{debug};
+use tokio::{select, time};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use crate::get_remote_interface_name;
 use crate::internal_messages::{IncomingUnparsedPacket, OutgoingUDPPacket};
+use crate::nic_metric::MetricValue;
 use crate::remote::{AsyncRemote, UDPremote, UDPLz4Remote};
 use crate::settings::{RemoteTypes, SettingsFile};
 
@@ -30,6 +32,7 @@ impl RemoteManager {
             tasks.push(
                 tokio::spawn(async move {
                     let bc = Arc::get_mut(&mut bc).unwrap();
+                    let mut metric_interval = time::interval(Duration::from_secs(1));
                     loop {
                         select! {
                             outgoing = bc.recv() => {
@@ -41,6 +44,17 @@ impl RemoteManager {
                             incoming = remote.read() => {
                                 let incoming = incoming.unwrap();
                                 mpsc_channel.send(incoming).await.unwrap();
+                            }
+
+                            _ = metric_interval.tick() => {
+                                debug!("metric tick!");
+                                let test = remote.get_metric().await;
+                                match test {
+                                        MetricValue::Nr5gRsrpValue(rsrp) => {
+                                            debug!("{}", rsrp);
+                                        }
+                                }
+
                             }
                         }
                     }
