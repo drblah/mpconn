@@ -12,7 +12,7 @@ use tokio::net::UdpSocket;
 use tokio_util::codec::BytesCodec;
 use tokio_util::udp::UdpFramed;
 use crate::internal_messages::{IncomingUnparsedPacket};
-use crate::nic_metric::{Metric, Nr5gRsrp};
+use crate::nic_metric::{MetricType, MetricValue, Nr5gRsrp};
 
 
 /// AsyncRemote is the base trait used to implement Remotes
@@ -32,6 +32,8 @@ pub trait AsyncRemote: Send {
     /// Get the OS level name of the interface the AsyncRemote
     /// is configured to use.
     fn get_interface(&self) -> String;
+
+    async fn get_metric(&mut self) -> MetricValue;
 }
 
 /// UDPRemote is used to implement an AsyncRemote
@@ -41,7 +43,7 @@ pub struct UDPremote {
     interface: String,
     input_stream: SplitStream<UdpFramed<BytesCodec>>,
     output_stream: SplitSink<UdpFramed<BytesCodec>, (Bytes, SocketAddr)>,
-    metric: Box<dyn Metric>
+    metrics: MetricType
 }
 
 /// UDPLz4Remote builds in top of the UDPRemote by compressing
@@ -84,6 +86,14 @@ impl AsyncRemote for UDPremote {
     fn get_interface(&self) -> String {
         self.interface.clone()
     }
+
+    async fn get_metric(&mut self) -> MetricValue {
+        match self.metrics {
+            MetricType::Nr5gRsrp(ref mut nr_5g_rsrp) => {
+                nr_5g_rsrp.get().await
+            }
+        }
+    }
 }
 
 impl UDPremote {
@@ -104,7 +114,7 @@ impl UDPremote {
             interface: iface.clone(),
             input_stream: reader,
             output_stream: writer,
-            metric: Box::new(Nr5gRsrp::new(iface).unwrap()),
+            metrics: MetricType::Nr5gRsrp(Nr5gRsrp::new(iface).unwrap())
         }
     }
 }
@@ -145,6 +155,14 @@ impl AsyncRemote for UDPLz4Remote {
     fn get_interface(&self) -> String {
         self.inner_udp_remote.interface.clone()
     }
+
+    async fn get_metric(&mut self) -> MetricValue {
+        match self.inner_udp_remote.metrics {
+            MetricType::Nr5gRsrp(ref mut nr_5g_rsrp) => {
+                nr_5g_rsrp.get().await
+            }
+        }
+    }
 }
 
 
@@ -166,7 +184,7 @@ impl UDPLz4Remote {
             interface: iface.clone(),
             input_stream: reader,
             output_stream: writer,
-            metric: Box::new(Nr5gRsrp::new(iface).unwrap()),
+            metrics: MetricType::Nr5gRsrp(Nr5gRsrp::new(iface).unwrap())
         };
 
         UDPLz4Remote {
