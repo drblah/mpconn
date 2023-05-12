@@ -22,6 +22,7 @@ ip netns add client2
 # Create veth pairs
 ip link add veth1 type veth peer name br-veth1
 ip link add veth2 type veth peer name br-veth2
+ip link add veth3 type veth peer name br-veth3
 
 ip link add gw_veth1 type veth peer name br-gw-veth1
 ip link add gw_veth2 type veth peer name br-gw-veth2
@@ -32,9 +33,10 @@ ip link add cli_veth2 type veth peer name br-cl-veth2
 
 # Associate the veth pairs with the namespaces
 ip link set veth1 netns host1
+ip link set veth2 netns host1
 ip link set gw_veth1 netns host1
 
-ip link set veth2 netns host2
+ip link set veth3 netns host2
 ip link set gw_veth2 netns host2
 
 ip link set cli_veth1 netns client1
@@ -45,10 +47,13 @@ ip netns exec host1 \
   ip addr add 172.16.200.2/24 dev veth1
 
 ip netns exec host1 \
+  ip addr add 172.16.200.3/24 dev veth2
+
+ip netns exec host1 \
   ip addr add 172.16.210.2/24 dev gw_veth1
 
 ip netns exec host2 \
-  ip addr add 172.16.200.3/24 dev veth2
+  ip addr add 172.16.200.4/24 dev veth3
 
 ip netns exec host2 \
   ip addr add 172.16.210.3/24 dev gw_veth2
@@ -72,6 +77,7 @@ ip link set bridge_gw2 up
 # Bring up all interfaces
 ip link set br-veth1 up
 ip link set br-veth2 up
+ip link set br-veth3 up
 
 ip link set br-gw-veth1 up
 ip link set br-gw-veth2 up
@@ -83,10 +89,13 @@ ip netns exec host1 \
   ip link set veth1 up
 
 ip netns exec host1 \
+  ip link set veth2 up
+
+ip netns exec host1 \
   ip link set gw_veth1 up
 
 ip netns exec host2 \
-  ip link set veth2 up
+  ip link set veth3 up
 
 ip netns exec host2 \
   ip link set gw_veth2 up
@@ -114,6 +123,7 @@ ip netns exec client2 \
 # Add br-veth* to the bridge
 ip link set br-veth1 master mptun_bridge
 ip link set br-veth2 master mptun_bridge
+ip link set br-veth3 master mptun_bridge
 
 ip link set br-gw-veth1 master bridge_gw1
 ip link set br-gw-veth2 master bridge_gw2

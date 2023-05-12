@@ -1,9 +1,8 @@
 {
   "peers": [
   ],
-  "keep_alive_interval": 15,
-  "reorder": false,
-  "peer_id": 11,
+  "keep_alive_interval": 10,
+  "peer_id": 1337,
   "local": {
     "type": "Layer2",
     "network_interface": "gw_veth2"
@@ -11,9 +10,10 @@
   "remotes": [
     {
       "type": "UDP",
-      "iface": "veth2",
-      "listen_addr": "172.16.200.3",
-      "listen_port": 10001
+      "iface": "veth3",
+      "listen_addr": "172.16.200.4",
+      "listen_port": 10001,
+      "bind_to_device": false
     }
   ]
 }
