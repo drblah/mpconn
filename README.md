@@ -22,9 +22,12 @@ apt-get install libpcap-dev
 The easiest way to get Rust is to install it using rustup from https://rustup.rs/
 
 ## Usage
-Each endpoint needs a host configuration. This configuration involves one or more remote endpoints to tunnel between, which Remote transport protocol to use and which layer to tunnel. Examples can be found in the test_tools directory along with bash scrpts for setting up network namespace based testing environments.
+Each endpoint needs a host configuration. This configuration involves one or more remote endpoints to tunnel between,
+which Remote transport protocol to use and which layer to tunnel. Examples can be found in the test_tools directory
+along with bash scrpts for setting up network namespace based testing environments.
 On each endpoint, run `./mpconn --config <host-config>.json`
-To get additional logging run it with the RUST_LOG environment variable `RUST_LOG=info ./mpconn --config <host-config>.json`
+To get additional logging run it with the RUST_LOG environment
+variable `RUST_LOG=debug ./mpconn --config <host-config>.json`
 
 ## Todo
 * QUIC Remote transport
