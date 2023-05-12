@@ -58,11 +58,7 @@ impl Nr5gRsrp {
         })
     }
 
-    pub async fn get(&mut self) -> MetricValue {
-        self.values.changed().await.unwrap();
-
-        let new_value = self.values.borrow_and_update();
-
-        new_value.clone()
+    pub fn get_watch_reader(&self) -> Receiver<MetricValue> {
+        self.values.clone()
     }
 }
