@@ -47,10 +47,10 @@ struct Args {
 
 fn get_remote_interface_name(remote: &RemoteTypes) -> String {
     match remote {
-        RemoteTypes::UDP { iface, listen_addr: _, listen_port: _, bind_to_device: _ } => {
+        RemoteTypes::UDP { iface, .. } => {
             iface.clone()
         }
-        RemoteTypes::UDPLz4 { iface, listen_addr: _, listen_port: _, bind_to_device: _ } => {
+        RemoteTypes::UDPLz4 { iface, .. } => {
             iface.clone()
         }
     }

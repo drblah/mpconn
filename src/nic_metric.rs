@@ -4,16 +4,47 @@ use tokio::sync::watch;
 use linux_info::network::modem_manager::{ModemManager};
 use log::debug;
 use anyhow::Result;
-use tokio::sync::watch::Receiver;
-use crate::nic_metric::MetricValue::Nr5gRsrpValue;
+use tokio::sync::watch::{Receiver, Sender};
+use crate::nic_metric::MetricValue::{NothingValue, Nr5gRsrpValue};
+use crate::settings::MetricConfig;
 
+/// Expresses the various values of metrics we can return to the rest of the application
 #[derive(Debug, Clone)]
 pub enum MetricValue {
-    Nr5gRsrpValue(f64)
+    /// This is a placeholder value, which is used when no Metric is needed or configured
+    NothingValue,
+
+    Nr5gRsrpValue(f64),
 }
 
+/// The different types of metrics we support
 pub enum MetricType {
-    Nr5gRsrp(Nr5gRsrp)
+    /// This is a placeholder intended to be used for unsupported devices, or when a metric is
+    /// not needed
+    Nothing(Nothing),
+    Nr5gRsrp(Nr5gRsrp),
+}
+
+/// This metric does nothing. When its Watch channel is pulled it will block indefinitely.
+pub struct Nothing {
+    values: Receiver<MetricValue>,
+    tx: Sender<MetricValue>,
+}
+
+impl Nothing {
+    pub fn new() -> Result<Self> {
+        let (tx, rx) = watch::channel::<MetricValue>(NothingValue);
+        Ok(
+            Nothing {
+                values: rx,
+                tx,
+            }
+        )
+    }
+
+    pub fn get_watch_reader(&self) -> Receiver<MetricValue> {
+        self.values.clone()
+    }
 }
 
 pub struct Nr5gRsrp {
@@ -24,7 +55,7 @@ pub struct Nr5gRsrp {
 }
 
 impl Nr5gRsrp {
-    pub fn new(interface: String) -> Result<Self> {
+    pub fn new(interface: String, device_path: String) -> Result<Self> {
         let (rsrp_watch_tx, rsrp_watch_rx) = watch::channel::<MetricValue>(Nr5gRsrpValue(0.0));
 
         let rsrp_thread = thread::Builder::new()
@@ -32,7 +63,7 @@ impl Nr5gRsrp {
             .spawn(move || {
                 let modem_manager = ModemManager::connect().unwrap();
                 for modem in modem_manager.modems().unwrap() {
-                    if modem.device().unwrap() == "/sys/devices/pci0000:00/0000:00:14.0/usb2/2-3" {
+                    if modem.device().unwrap() == device_path.as_str() { //"/sys/devices/pci0000:00/0000:00:14.0/usb2/2-3" {
                         modem.signal_setup(1).unwrap();
                         loop {
                             thread::sleep(Duration::from_secs(1));
@@ -60,5 +91,16 @@ impl Nr5gRsrp {
 
     pub fn get_watch_reader(&self) -> Receiver<MetricValue> {
         self.values.clone()
+    }
+}
+
+pub fn init_metric(interface: String, metric_config: MetricConfig) -> MetricType {
+    match metric_config {
+        MetricConfig::Nr5gRsrp { device_path } => {
+            MetricType::Nr5gRsrp(Nr5gRsrp::new(interface, device_path).unwrap())
+        }
+        MetricConfig::Nothing { .. } => {
+            MetricType::Nothing(Nothing::new().unwrap())
+        }
     }
 }
