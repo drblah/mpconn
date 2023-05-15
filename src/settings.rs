@@ -35,6 +35,9 @@ pub enum RemoteTypes {
         /// Whether the Remote should bind to the device or not. This is mostly useful for a server
         /// instance which only has a single interface with multiple routes to clients. Default is true
         bind_to_device: Option<bool>,
+
+        /// Device metric
+        metrics: MetricConfig,
     },
 
     /// The UDPLz4 Remote variant is identical to the UDP Remote in most ways.
@@ -47,6 +50,9 @@ pub enum RemoteTypes {
         /// Whether the Remote should bind to the device or not. This is mostly useful for a server
         /// instance which only has a single interface with multiple routes to clients. Default is true
         bind_to_device: Option<bool>,
+
+        /// Device metric
+        metrics: MetricConfig,
     },
 }
 
@@ -56,6 +62,18 @@ pub struct PeerConfig {
     pub addresses: Vec<SocketAddr>,
     /// must contain the unique id of the peer.
     pub id: u16,
+}
+
+/// Network metrics obtained from network interfaces
+#[derive(Deserialize, Debug, Clone)]
+#[serde(tag = "type")]
+pub enum MetricConfig {
+    /// This metric does nothing. When its Watch channel is pulled it will block indefinitely.
+    Nothing {},
+    Nr5gRsrp {
+        /// The device path as shown in ModemManager
+        device_path: String
+    },
 }
 
 /// A settings file can contain zero or more peers which will be used to seed the PeerList. An

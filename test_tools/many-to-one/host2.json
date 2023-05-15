@@ -13,7 +13,10 @@
       "iface": "veth3",
       "listen_addr": "172.16.200.4",
       "listen_port": 10001,
-      "bind_to_device": false
+      "bind_to_device": false,
+      "metrics": {
+        "type": "Nothing"
+      }
     }
   ]
 }

@@ -13,7 +13,8 @@ use tokio::sync::watch::Receiver;
 use tokio_util::codec::BytesCodec;
 use tokio_util::udp::UdpFramed;
 use crate::internal_messages::{IncomingUnparsedPacket};
-use crate::nic_metric::{MetricType, MetricValue, Nr5gRsrp};
+use crate::nic_metric::{init_metric, MetricType, MetricValue};
+use crate::settings::MetricConfig;
 
 
 /// AsyncRemote is the base trait used to implement Remotes
@@ -93,6 +94,9 @@ impl AsyncRemote for UDPremote {
             MetricType::Nr5gRsrp(ref nr_5g_rsrp) => {
                 nr_5g_rsrp.get_watch_reader()
             }
+            MetricType::Nothing(ref nothing) => {
+                nothing.get_watch_reader()
+            }
         }
     }
 }
@@ -102,7 +106,8 @@ impl UDPremote {
         iface: String,
         listen_addr: Option<Ipv4Addr>,
         listen_port: u16,
-        bind_to_device: bool
+        bind_to_device: bool,
+        metric_config: MetricConfig,
     ) -> UDPremote {
         let socket = UdpFramed::new(
             make_socket(&iface, listen_addr, listen_port, bind_to_device),
@@ -115,7 +120,7 @@ impl UDPremote {
             interface: iface.clone(),
             input_stream: reader,
             output_stream: writer,
-            metrics: MetricType::Nr5gRsrp(Nr5gRsrp::new(iface).unwrap())
+            metrics: init_metric(iface.clone(), metric_config)
         }
     }
 }
@@ -162,6 +167,9 @@ impl AsyncRemote for UDPLz4Remote {
             MetricType::Nr5gRsrp(ref nr_5g_rsrp) => {
                 nr_5g_rsrp.get_watch_reader()
             }
+            MetricType::Nothing(ref nothing) => {
+                nothing.get_watch_reader()
+            }
         }
     }
 }
@@ -172,7 +180,8 @@ impl UDPLz4Remote {
         iface: String,
         listen_addr: Option<Ipv4Addr>,
         listen_port: u16,
-        bind_to_device: bool
+        bind_to_device: bool,
+        metric_config: MetricConfig,
     ) -> UDPLz4Remote {
         let socket = UdpFramed::new(
             make_socket(&iface, listen_addr, listen_port, bind_to_device),
@@ -185,7 +194,7 @@ impl UDPLz4Remote {
             interface: iface.clone(),
             input_stream: reader,
             output_stream: writer,
-            metrics: MetricType::Nr5gRsrp(Nr5gRsrp::new(iface).unwrap())
+            metrics: init_metric(iface.clone(), metric_config)
         };
 
         UDPLz4Remote {
