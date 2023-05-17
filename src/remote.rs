@@ -91,7 +91,7 @@ impl AsyncRemote for UDPremote {
 
     fn get_metric_channel(&self) -> Receiver<MetricValue> {
         match self.metrics {
-            MetricType::Nr5gRsrp(ref nr_5g_rsrp) => {
+            MetricType::Nr5gSignal(ref nr_5g_rsrp) => {
                 nr_5g_rsrp.get_watch_reader()
             }
             MetricType::Nothing(ref nothing) => {
@@ -164,7 +164,7 @@ impl AsyncRemote for UDPLz4Remote {
 
     fn get_metric_channel(&self) -> Receiver<MetricValue> {
         match self.inner_udp_remote.metrics {
-            MetricType::Nr5gRsrp(ref nr_5g_rsrp) => {
+            MetricType::Nr5gSignal(ref nr_5g_rsrp) => {
                 nr_5g_rsrp.get_watch_reader()
             }
             MetricType::Nothing(ref nothing) => {

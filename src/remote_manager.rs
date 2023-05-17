@@ -50,8 +50,8 @@ impl RemoteManager {
                                 debug!("metric tick!");
                                 let new_metric = metric_channel.borrow().clone();
                                 match new_metric {
-                                        MetricValue::Nr5gRsrpValue(rsrp) => {
-                                            debug!("{}", rsrp);
+                                        MetricValue::Nr5gSignalValue(rsrp) => {
+                                            debug!("{:?}", rsrp);
                                         }
                                         MetricValue::NothingValue => { debug!("NothingValue!")  }
                                 }

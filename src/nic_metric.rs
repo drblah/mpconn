@@ -1,11 +1,11 @@
 use std::thread;
 use std::time::Duration;
 use tokio::sync::watch;
-use linux_info::network::modem_manager::{Modem, ModemManager};
+use linux_info::network::modem_manager::{Modem, ModemManager, SignalNr5g};
 use log::{error};
 use anyhow::{bail, Result};
 use tokio::sync::watch::{Receiver, Sender};
-use crate::nic_metric::MetricValue::{NothingValue, Nr5gRsrpValue};
+use crate::nic_metric::MetricValue::{NothingValue, Nr5gSignalValue};
 use crate::settings::MetricConfig;
 
 /// Expresses the various values of metrics we can return to the rest of the application
@@ -14,7 +14,7 @@ pub enum MetricValue {
     /// This is a placeholder value, which is used when no Metric is needed or configured
     NothingValue,
 
-    Nr5gRsrpValue(f64),
+    Nr5gSignalValue(SignalNr5g),
 }
 
 /// The different types of metrics we support
@@ -22,7 +22,7 @@ pub enum MetricType {
     /// This is a placeholder intended to be used for unsupported devices, or when a metric is
     /// not needed
     Nothing(Nothing),
-    Nr5gRsrp(Nr5gRsrp),
+    Nr5gSignal(Nr5gSignal),
 }
 
 /// This metric does nothing. When its Watch channel is pulled it will block indefinitely.
@@ -49,27 +49,34 @@ impl Nothing {
     }
 }
 
-pub struct Nr5gRsrp {
+pub struct Nr5gSignal {
     pub interface: String,
     #[allow(dead_code)]
     thread: thread::JoinHandle<Result<()>>,
     values: Receiver<MetricValue>,
 }
 
-impl Nr5gRsrp {
+impl Nr5gSignal {
     pub fn new(interface: String) -> Result<Self> {
-        let (rsrp_watch_tx, rsrp_watch_rx) = watch::channel::<MetricValue>(Nr5gRsrpValue(0.0));
+        let init_value = Nr5gSignalValue(
+            SignalNr5g {
+                rsrq: 0.0,
+                rsrp: 0.0,
+                snr: 0.0,
+            }
+        );
+        let (rsrp_watch_tx, rsrp_watch_rx) = watch::channel::<MetricValue>(init_value);
 
         let interface_name = interface.clone();
         let rsrp_thread = thread::Builder::new()
-            .name(format!("Nr5gRsrp_{}", interface.clone()).to_string())
+            .name(format!("Nr5gSignal{}", interface.clone()).to_string())
             .spawn(move || -> Result<()> {
                 let modem = Self::get_modem(interface_name)?;
                 modem.signal_setup(1).unwrap();
                 loop {
                     match modem.signal_nr5g() {
                         Ok(signal) => {
-                            rsrp_watch_tx.send(Nr5gRsrpValue(signal.rsrp)).unwrap();
+                            rsrp_watch_tx.send(Nr5gSignalValue(signal)).unwrap();
                         }
                         Err(
                             e
@@ -81,7 +88,7 @@ impl Nr5gRsrp {
                 }
             }).unwrap();
 
-        Ok(Nr5gRsrp {
+        Ok(Nr5gSignal {
             interface,
             thread: rsrp_thread,
             values: rsrp_watch_rx,
@@ -109,8 +116,8 @@ impl Nr5gRsrp {
 
 pub fn init_metric(interface: String, metric_config: MetricConfig) -> MetricType {
     match metric_config {
-        MetricConfig::Nr5gRsrp {} => {
-            MetricType::Nr5gRsrp(Nr5gRsrp::new(interface).unwrap())
+        MetricConfig::Nr5gSignal {} => {
+            MetricType::Nr5gSignal(Nr5gSignal::new(interface).unwrap())
         }
         MetricConfig::Nothing { .. } => {
             MetricType::Nothing(Nothing::new().unwrap())
