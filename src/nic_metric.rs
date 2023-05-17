@@ -1,7 +1,7 @@
 use std::thread;
 use std::time::Duration;
 use tokio::sync::watch;
-use linux_info::network::modem_manager::{ModemManager};
+use linux_info::network::modem_manager::{Modem, ModemManager};
 use log::debug;
 use anyhow::{bail, Result};
 use tokio::sync::watch::{Receiver, Sender};
@@ -52,7 +52,7 @@ impl Nothing {
 pub struct Nr5gRsrp {
     pub interface: String,
     #[allow(dead_code)]
-    thread: thread::JoinHandle<()>,
+    thread: thread::JoinHandle<Result<()>>,
     values: Receiver<MetricValue>,
 }
 
@@ -60,29 +60,24 @@ impl Nr5gRsrp {
     pub fn new(interface: String) -> Result<Self> {
         let (rsrp_watch_tx, rsrp_watch_rx) = watch::channel::<MetricValue>(Nr5gRsrpValue(0.0));
 
-        let device_path = Self::get_device_path(&interface)?;
-
+        let interface_name = interface.clone();
         let rsrp_thread = thread::Builder::new()
             .name(format!("Nr5gRsrp_{}", interface.clone()).to_string())
-            .spawn(move || {
-                let modem_manager = ModemManager::connect().unwrap();
-                for modem in modem_manager.modems().unwrap() {
-                    if modem.device().unwrap() == device_path { //"/sys/devices/pci0000:00/0000:00:14.0/usb2/2-3" {
-                        modem.signal_setup(1).unwrap();
-                        loop {
-                            match modem.signal_nr5g() {
-                                Ok(signal) => {
-                                    rsrp_watch_tx.send(Nr5gRsrpValue(signal.rsrp)).unwrap();
-                                }
-                                Err(
-                                    e
-                                ) => {
-                                    debug!("Error getting 5G signal info: {}", e)
-                                }
-                            }
-                            thread::sleep(Duration::from_secs(1));
+            .spawn(move || -> Result<()> {
+                let modem = Self::get_modem(interface_name)?;
+                modem.signal_setup(1).unwrap();
+                loop {
+                    match modem.signal_nr5g() {
+                        Ok(signal) => {
+                            rsrp_watch_tx.send(Nr5gRsrpValue(signal.rsrp)).unwrap();
+                        }
+                        Err(
+                            e
+                        ) => {
+                            debug!("Error getting 5G signal info: {}", e)
                         }
                     }
+                    thread::sleep(Duration::from_secs(1));
                 }
             }).unwrap();
 
@@ -97,13 +92,13 @@ impl Nr5gRsrp {
         self.values.clone()
     }
 
-    fn get_device_path(interface: &str) -> Result<String> {
+    fn get_modem(interface: String) -> Result<Modem> {
         let modem_manager = ModemManager::connect().unwrap();
 
         for modem in modem_manager.modems()? {
             for (port_string, _idx) in modem.ports()? {
                 if port_string == interface {
-                    return Ok(modem.device()?)
+                    return Ok(modem)
                 }
             }
         }
