@@ -58,9 +58,14 @@ ip link set br-veth3 master mptun_bridge
 # Assign address to bridge
 ip addr add 172.16.200.1/24 brd + dev mptun_bridge
 
-tc qdisc add dev br-veth1 root netem delay 1ms reorder 25% 50%
-tc qdisc add dev br-veth2 root netem delay 1ms reorder 25% 50%
-tc qdisc add dev br-veth3 root netem delay 1ms reorder 25% 50%
+#tc qdisc add dev br-veth1 root netem delay 1ms reorder 25% 50%
+#tc qdisc add dev br-veth2 root netem delay 1ms reorder 25% 50%
+#tc qdisc add dev br-veth3 root netem delay 1ms reorder 25% 50%
+tc qdisc add dev br-veth1 root netem delay 20ms 10ms
+tc qdisc add dev br-veth2 root netem delay 20ms 10ms
+tc qdisc add dev br-veth3 root netem delay 20ms 10ms
+
+
 #tc qdisc add dev mptun_bridge root netem delay 20ms 10ms
 
 # Start interactive consoles for each namespace
