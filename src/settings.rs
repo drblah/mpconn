@@ -70,10 +70,7 @@ pub struct PeerConfig {
 pub enum MetricConfig {
     /// This metric does nothing. When its Watch channel is pulled it will block indefinitely.
     Nothing {},
-    Nr5gRsrp {
-        /// The device path as shown in ModemManager
-        device_path: String
-    },
+    Nr5gRsrp {},
 }
 
 /// A settings file can contain zero or more peers which will be used to seed the PeerList. An

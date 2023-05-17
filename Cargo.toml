@@ -25,5 +25,6 @@ async-trait = "0.1.63"
 pnet_datalink = "0.33.0"
 log = "0.4.0"
 env_logger = "0.10.0"
-linux-info = { version = "0.1.13", features = ["network"] }
+#linux-info = { version = "0.1.13", features = ["network"] }
+linux-info = { git = "https://github.com/drblah/linux-info", branch = "device", features = ["network"] }
 anyhow = "1.0"
