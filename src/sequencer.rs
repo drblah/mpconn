@@ -72,9 +72,9 @@ impl Sequencer {
 
 #[cfg(test)]
 mod tests {
-    use std::thread;
     use std::time::Duration;
-    use crate::{Packet, Sequencer};
+    use crate::messages::Packet;
+    use crate::sequencer::Sequencer;
 
     #[test]
     fn unordered_insert() {
@@ -82,18 +82,22 @@ mod tests {
         let packets = vec![
             Packet{
                 seq: 0,
+                peer_id: 0,
                 bytes: Vec::new()
             },
             Packet {
                 seq: 3,
+                peer_id: 0,
                 bytes: Vec::new()
             },
             Packet{
                 seq: 1,
+                peer_id: 0,
                 bytes: Vec::new()
             },
             Packet{
                 seq: 2,
+                peer_id: 0,
                 bytes: Vec::new()
             }
         ];
@@ -116,22 +120,27 @@ mod tests {
         let packets = vec![
             Packet {
                 seq: 0,
+                peer_id: 0,
                 bytes: Vec::new(),
             },
             Packet {
                 seq: 3,
+                peer_id: 0,
                 bytes: Vec::new(),
             },
             Packet {
                 seq: 3,
+                peer_id: 0,
                 bytes: Vec::new(),
             },
             Packet {
                 seq: 1,
+                peer_id: 0,
                 bytes: Vec::new(),
             },
             Packet {
                 seq: 2,
+                peer_id: 0,
                 bytes: Vec::new(),
             },
         ];
