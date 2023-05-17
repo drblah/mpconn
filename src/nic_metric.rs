@@ -70,9 +70,6 @@ impl Nr5gRsrp {
                     if modem.device().unwrap() == device_path { //"/sys/devices/pci0000:00/0000:00:14.0/usb2/2-3" {
                         modem.signal_setup(1).unwrap();
                         loop {
-                            // TODO: Is this needed? Or will the dbus automatically block until new
-                            // values become available?
-                            thread::sleep(Duration::from_secs(1));
                             match modem.signal_nr5g() {
                                 Ok(signal) => {
                                     rsrp_watch_tx.send(Nr5gRsrpValue(signal.rsrp)).unwrap();
@@ -83,6 +80,7 @@ impl Nr5gRsrp {
                                     debug!("Error getting 5G signal info: {}", e)
                                 }
                             }
+                            thread::sleep(Duration::from_secs(1));
                         }
                     }
                 }
