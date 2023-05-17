@@ -2,7 +2,7 @@ use std::thread;
 use std::time::Duration;
 use tokio::sync::watch;
 use linux_info::network::modem_manager::{Modem, ModemManager};
-use log::debug;
+use log::{error};
 use anyhow::{bail, Result};
 use tokio::sync::watch::{Receiver, Sender};
 use crate::nic_metric::MetricValue::{NothingValue, Nr5gRsrpValue};
@@ -74,7 +74,7 @@ impl Nr5gRsrp {
                         Err(
                             e
                         ) => {
-                            debug!("Error getting 5G signal info: {}", e)
+                            error!("Error getting 5G signal info: {}", e)
                         }
                     }
                     thread::sleep(Duration::from_secs(1));
