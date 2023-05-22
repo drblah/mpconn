@@ -5,16 +5,18 @@ use std::time::{Duration, SystemTime};
 use bincode::config::{AllowTrailing, VarintEncoding, WithOtherIntEncoding, WithOtherTrailing};
 use bincode::{DefaultOptions, Options};
 use bytes::BytesMut;
+use libc::flock64;
 use log::{debug, error};
 use crate::messages::Packet;
 use tokio::{select, time};
 use tokio::fs::File;
 use tokio::io::{AsyncWriteExt, BufWriter};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use crate::internal_messages::{IncomingUnparsedPacket, OutgoingUDPPacket};
 use crate::messages::{Keepalive, Messages};
 use crate::peer_list::{PeerList};
 use crate::{messages, settings, traffic_director};
+use crate::nic_metric::MetricValue;
 use crate::settings::{LocalTypes, SettingsFile};
 use crate::traffic_director::DirectorType;
 
@@ -422,6 +424,36 @@ impl ConnectionManager {
         let time_stamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos();
         let log_string = format!("{},{},{}\n", time_stamp, sequence_number, receiver_interface);
         if_log.write_all(log_string.as_ref()).await.unwrap();
+    }
+
+    async fn selective_duplication(outgoing_packet: OutgoingUDPPacket, packets_to_remotes_tx: &mut HashMap<String, Arc<mpsc::Sender<OutgoingUDPPacket>>>, metrics_channels: HashMap<String, watch::Receiver<MetricValue>>) {
+        let mut current_metrics = Vec::new();
+        let rsrp_threshold = -90 as f64;
+
+        /// Retrieve the current signal values for all interfaces
+        for (interface, channel) in &mut *packets_to_remotes_tx {
+            if let Some(metric_channel) = metrics_channels.get(interface) {
+                if let MetricValue::Nr5gSignalValue(signal_values) = metric_channel.borrow().clone() {
+                    current_metrics.push(
+                        (interface, signal_values, channel)
+                    );
+                }
+            }
+        }
+
+        /// Get the interface with the best signal, if it is above the threshold.
+        /// Otherwise send on all available interfaces
+        current_metrics.sort_by(|a, b| b.1.rsrp.partial_cmp(&a.1.rsrp).expect(format!("Failed to sort current metrics. We tried to compare: {:?} and {:?}", b.1, a.1).as_str()));
+        if let Some((interface, signal_values, channel)) = current_metrics.pop() {
+            if signal_values.rsrp >= rsrp_threshold {
+                channel.send(outgoing_packet).await.unwrap()
+            }
+        } else {
+            for channel in packets_to_remotes_tx.values_mut() {
+                channel.send(outgoing_packet.clone()).await.unwrap()
+            }
+        }
+
     }
 }
 
