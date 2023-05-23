@@ -444,14 +444,15 @@ impl ConnectionManager {
             if signal_values.rsrp >= rsrp_threshold {
                 trace!("selective threshold of {} met. Sending via: {}", rsrp_threshold, interface);
                 channel.send(outgoing_packet).await.unwrap()
+            } else {
+                trace!("selective threshold not met. Using full duplication");
+                for channel in packets_to_remotes_tx.values_mut() {
+                    channel.send(outgoing_packet.clone()).await.unwrap()
+                }
             }
         } else {
-            trace!("selective threshold not met. Using full duplication");
-            for channel in packets_to_remotes_tx.values_mut() {
-                channel.send(outgoing_packet.clone()).await.unwrap()
-            }
+            unreachable!("No metrics defined. Is everything configured correctly?");
         }
-
     }
 }
 
