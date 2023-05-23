@@ -109,6 +109,7 @@ async fn main() {
         packets_from_remotes_rx,
         packets_to_local_tx,
         packets_from_local_rx,
+        remote_manager.metric_channels.clone()
     );
 
     let connection_manager = Arc::new(connection_manager);

@@ -5,8 +5,7 @@ use std::time::{Duration, SystemTime};
 use bincode::config::{AllowTrailing, VarintEncoding, WithOtherIntEncoding, WithOtherTrailing};
 use bincode::{DefaultOptions, Options};
 use bytes::BytesMut;
-use libc::flock64;
-use log::{debug, error};
+use log::{debug, error, trace};
 use crate::messages::Packet;
 use tokio::{select, time};
 use tokio::fs::File;
@@ -36,6 +35,7 @@ pub struct ConnectionManager {
     maintenance_interval: time::Interval,
     global_sequencer_interval: time::Interval,
     keepalive_interval: time::Interval,
+    metric_channels: HashMap<String, watch::Receiver<MetricValue>>
 }
 
 impl ConnectionManager {
@@ -46,6 +46,7 @@ impl ConnectionManager {
         packets_from_remotes_rx: mpsc::Receiver<IncomingUnparsedPacket>,
         packets_to_local_tx: mpsc::Sender<Vec<u8>>,
         packets_from_local_rx: mpsc::Receiver<Vec<u8>>,
+        metric_channels: HashMap<String, watch::Receiver<MetricValue>>
     ) -> ConnectionManager
     {
         let bincode_config = bincode::options()
@@ -91,6 +92,7 @@ impl ConnectionManager {
             maintenance_interval,
             global_sequencer_interval,
             keepalive_interval,
+            metric_channels
         }
     }
 
@@ -272,9 +274,7 @@ impl ConnectionManager {
                                     packet_bytes: serialized_packet.clone(),
                                 };
 
-                                for channel in self.packets_to_remotes_tx.values_mut() {
-                                    channel.send(outgoing_packet.clone()).await.unwrap()
-                                }
+                                Self::selective_duplication(outgoing_packet, &mut self.packets_to_remotes_tx, &self.metric_channels).await;
                             }
                         }
                         traffic_director::Path::Broadcast => {
@@ -300,9 +300,7 @@ impl ConnectionManager {
                                         packet_bytes: serialized_packet.clone(),
                                     };
 
-                                    for channel in self.packets_to_remotes_tx.values_mut() {
-                                        channel.send(outgoing_packet.clone()).await.unwrap()
-                                    }
+                                    Self::selective_duplication(outgoing_packet, &mut self.packets_to_remotes_tx, &self.metric_channels).await;
                                 }
                             }
                         }
@@ -330,9 +328,7 @@ impl ConnectionManager {
                             packet_bytes: serialized_packet.clone(),
                         };
 
-                        for channel in self.packets_to_remotes_tx.values_mut() {
-                            channel.send(outgoing_packet.clone()).await.unwrap()
-                        }
+                        Self::selective_duplication(outgoing_packet, &mut self.packets_to_remotes_tx, &self.metric_channels).await;
                     }
                 }
             }
@@ -426,11 +422,11 @@ impl ConnectionManager {
         if_log.write_all(log_string.as_ref()).await.unwrap();
     }
 
-    async fn selective_duplication(outgoing_packet: OutgoingUDPPacket, packets_to_remotes_tx: &mut HashMap<String, Arc<mpsc::Sender<OutgoingUDPPacket>>>, metrics_channels: HashMap<String, watch::Receiver<MetricValue>>) {
+    async fn selective_duplication(outgoing_packet: OutgoingUDPPacket, packets_to_remotes_tx: &mut HashMap<String, Arc<mpsc::Sender<OutgoingUDPPacket>>>, metrics_channels: &HashMap<String, watch::Receiver<MetricValue>>) {
         let mut current_metrics = Vec::new();
         let rsrp_threshold = -90 as f64;
 
-        /// Retrieve the current signal values for all interfaces
+        // Retrieve the current signal values for all interfaces
         for (interface, channel) in &mut *packets_to_remotes_tx {
             if let Some(metric_channel) = metrics_channels.get(interface) {
                 if let MetricValue::Nr5gSignalValue(signal_values) = metric_channel.borrow().clone() {
@@ -441,14 +437,16 @@ impl ConnectionManager {
             }
         }
 
-        /// Get the interface with the best signal, if it is above the threshold.
-        /// Otherwise send on all available interfaces
+        // Get the interface with the best signal, if it is above the threshold.
+        // Otherwise send on all available interfaces
         current_metrics.sort_by(|a, b| b.1.rsrp.partial_cmp(&a.1.rsrp).expect(format!("Failed to sort current metrics. We tried to compare: {:?} and {:?}", b.1, a.1).as_str()));
         if let Some((interface, signal_values, channel)) = current_metrics.pop() {
             if signal_values.rsrp >= rsrp_threshold {
+                trace!("selective threshold met. Sending via: {}", interface);
                 channel.send(outgoing_packet).await.unwrap()
             }
         } else {
+            trace!("selective threshold not met. Using full duplication");
             for channel in packets_to_remotes_tx.values_mut() {
                 channel.send(outgoing_packet.clone()).await.unwrap()
             }

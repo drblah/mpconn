@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bytes::Bytes;
 use log::{debug};
 use tokio::{select};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use crate::get_remote_interface_name;
 use crate::internal_messages::{IncomingUnparsedPacket, OutgoingUDPPacket};
@@ -13,6 +13,7 @@ use crate::settings::{RemoteTypes, SettingsFile};
 
 pub struct RemoteManager {
     pub remote_tasks: Vec<JoinHandle<()>>,
+    pub metric_channels: HashMap<String, watch::Receiver<MetricValue>>
 }
 
 
@@ -20,14 +21,18 @@ impl RemoteManager {
     // new takes a SettingsFile, a tokio broadcast channel receiver, and a tokio mpsc channel sender.
     pub fn new(settings: SettingsFile, mut packets_to_remotes_rx: HashMap<String, Arc<mpsc::Receiver<OutgoingUDPPacket>>>, raw_udp_from_remotes: mpsc::Sender<IncomingUnparsedPacket>) -> Self {
         let mut tasks = Vec::new();
+        let mut metric_channels: HashMap<String, watch::Receiver<MetricValue>> = HashMap::new();
 
         for dev in &settings.remotes {
-            let mut bc = packets_to_remotes_rx.get_mut(get_remote_interface_name(dev).as_str()).unwrap().clone();
+            let device_name = get_remote_interface_name(dev);
+            let mut bc = packets_to_remotes_rx.get_mut(device_name.as_str()).unwrap().clone();
 
             let dev = dev.clone();
             let mpsc_channel = raw_udp_from_remotes.clone();
             let mut remote = Self::make_remote(dev.clone());
-            let mut metric_channel = remote.get_metric_channel();
+            let metric_channel = remote.get_metric_channel();
+
+            metric_channels.insert(device_name, metric_channel);
 
             tasks.push(
                 tokio::spawn(async move {
@@ -45,7 +50,7 @@ impl RemoteManager {
                                 let incoming = incoming.unwrap();
                                 mpsc_channel.send(incoming).await.unwrap();
                             }
-
+                            /*
                             _ = metric_channel.changed() => {
                                 debug!("metric tick!");
                                 let new_metric = metric_channel.borrow().clone();
@@ -57,13 +62,15 @@ impl RemoteManager {
                                 }
 
                             }
+
+                             */
                         }
                     }
                 })
             )
         }
 
-        Self { remote_tasks: tasks }
+        Self { remote_tasks: tasks, metric_channels }
     }
 
     pub async fn run(&mut self) {
