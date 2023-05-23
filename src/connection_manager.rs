@@ -424,7 +424,7 @@ impl ConnectionManager {
 
     async fn selective_duplication(outgoing_packet: OutgoingUDPPacket, packets_to_remotes_tx: &mut HashMap<String, Arc<mpsc::Sender<OutgoingUDPPacket>>>, metrics_channels: &HashMap<String, watch::Receiver<MetricValue>>) {
         let mut current_metrics = Vec::new();
-        let rsrp_threshold = -90 as f64;
+        let rsrp_threshold = -60 as f64;
 
         // Retrieve the current signal values for all interfaces
         for (interface, channel) in &mut *packets_to_remotes_tx {
@@ -442,7 +442,7 @@ impl ConnectionManager {
         current_metrics.sort_by(|a, b| b.1.rsrp.partial_cmp(&a.1.rsrp).expect(format!("Failed to sort current metrics. We tried to compare: {:?} and {:?}", b.1, a.1).as_str()));
         if let Some((interface, signal_values, channel)) = current_metrics.pop() {
             if signal_values.rsrp >= rsrp_threshold {
-                trace!("selective threshold met. Sending via: {}", interface);
+                trace!("selective threshold of {} met. Sending via: {}", rsrp_threshold, interface);
                 channel.send(outgoing_packet).await.unwrap()
             }
         } else {
