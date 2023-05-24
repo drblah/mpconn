@@ -429,13 +429,18 @@ impl ConnectionManager {
         // Retrieve the current signal values for all interfaces
         for (interface, channel) in &mut *packets_to_remotes_tx {
             if let Some(metric_channel) = metrics_channels.get(interface) {
-                if let MetricValue::Nr5gSignalValue(signal_values) = metric_channel.borrow().clone() {
-                    current_metrics.push(
-                        (interface, signal_values, channel)
-                    );
+                match metric_channel.borrow().clone() {
+                    MetricValue::Nr5gSignalValue(signal_values) => {
+                        current_metrics.push(
+                            (interface, signal_values, channel)
+                        )
+                    }
+                    MetricValue::WiFiSignalValue(..) => { todo!() }
+                    MetricValue::NothingValue => {}
                 }
             }
         }
+
 
         // Get the interface with the best signal, if it is above the threshold.
         // Otherwise send on all available interfaces
@@ -451,7 +456,10 @@ impl ConnectionManager {
                 }
             }
         } else {
-            unreachable!("No metrics defined. Is everything configured correctly?");
+            trace!("No metrics defined. Using full duplication");
+            for channel in packets_to_remotes_tx.values_mut() {
+                channel.send(outgoing_packet.clone()).await.unwrap()
+            }
         }
     }
 }
