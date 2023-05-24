@@ -1,3 +1,4 @@
+use alloc::fmt::format;
 use std::thread;
 use std::time::Duration;
 use tokio::sync::watch;
@@ -5,7 +6,7 @@ use linux_info::network::modem_manager::{Modem, ModemManager, SignalNr5g};
 use log::{error};
 use anyhow::{bail, Result};
 use tokio::sync::watch::{Receiver, Sender};
-use crate::nic_metric::MetricValue::{NothingValue, Nr5gSignalValue};
+use crate::nic_metric::MetricValue::{NothingValue, Nr5gSignalValue, WiFiSignalValue};
 use crate::settings::MetricConfig;
 
 /// Expresses the various values of metrics we can return to the rest of the application
@@ -15,6 +16,8 @@ pub enum MetricValue {
     NothingValue,
 
     Nr5gSignalValue(SignalNr5g),
+
+    WiFiSignalValue(f64),
 }
 
 /// The different types of metrics we support
@@ -122,5 +125,61 @@ pub fn init_metric(interface: String, metric_config: MetricConfig) -> MetricType
         MetricConfig::Nothing { .. } => {
             MetricType::Nothing(Nothing::new().unwrap())
         }
+    }
+}
+
+struct WiFiSignal {
+    pub interface: String,
+    #[allow(dead_code)]
+    thread: thread::JoinHandle<Result<()>>,
+    values: Receiver<MetricValue>,
+}
+
+impl WiFiSignal {
+    pub fn new(interface: String) -> Result<Self> {
+        let init_value = WiFiSignalValue(
+            0.0
+        );
+        let (wifi_watch_tx, wifi_watch_rx) = watch::channel::<MetricValue>(init_value);
+
+        let interface_name = interface.clone();
+        let wifi_signal_thread = thread::Builder::new()
+            .name(format!("WiFisignal{}", interface.clone()).to_string())
+            .spawn(move || -> Result<()> {
+                let mut wpa = wpactrl::Client::builder().open().expect(format!("Failed to open connection to wpa-supplicant for interface: {}", interface_name).as_str());
+
+                loop {
+                    let signal_info = wpa.request("signal_poll").expect(format!("Failed to request signal_poll for interface: {}", interface_name).as_str());
+
+                    match Self::parse_signal_poll(&signal_info) {
+                        Ok(rssi) => wifi_watch_tx.send(WiFiSignalValue(rssi)).unwrap(),
+                        _ => error!("Error getting RSSI for {}", interface_name)
+                    }
+                }
+            }).unwrap();
+
+        Ok(WiFiSignal {
+            interface,
+            thread: wifi_signal_thread,
+            values: wifi_watch_rx,
+        })
+    }
+
+    pub fn get_watch_reader(&self) -> Receiver<MetricValue> {
+        self.values.clone()
+    }
+
+    pub fn parse_signal_poll(signal_string: &str) -> Result<f64> {
+        for line in signal_string.lines() {
+            if line.contains("RSSI=") {
+                let split: Vec<&str> = line.split('=').collect();
+
+                if let Some(rssi_string) = split.last() {
+                    let rssi_value = rssi_string.parse::<f64>()?;
+                    return Ok(rssi_value)
+                }
+            }
+        }
+        bail!("Failed to parse rssi value")
     }
 }
