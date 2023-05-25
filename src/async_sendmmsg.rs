@@ -7,7 +7,7 @@ use crate::internal_messages::OutgoingUDPPacket;
 use std::net::{SocketAddr, SocketAddrV4};
 use std::os::fd::AsRawFd;
 use std::panic::PanicInfo;
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 
 pub struct AsyncSendmmsg {
     inner: AsyncFd<UdpSocket>,
@@ -58,6 +58,17 @@ impl AsyncSendmmsg {
         {
             Ok(result) => Ok(result?),
             Err(e) => Err(anyhow!("Error sending with sendmmsg"))
+        }
+    }
+
+    pub async fn send_to(&mut self, bytes: Bytes, destination: SocketAddr) -> Result<usize> {
+        let mut guard = self.inner.writable().await?;
+
+        match guard
+            .try_io(|inner| inner.get_ref().send_to(&bytes, destination))
+        {
+            Ok(result) => Ok(result?),
+            Err(_e) => Err(anyhow!("Error sending packet"))
         }
     }
 
