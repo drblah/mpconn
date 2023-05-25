@@ -447,16 +447,16 @@ impl ConnectionManager {
         current_metrics.sort_by(|a, b| b.1.rsrp.partial_cmp(&a.1.rsrp).expect(format!("Failed to sort current metrics. We tried to compare: {:?} and {:?}", b.1, a.1).as_str()));
         if let Some((interface, signal_values, channel)) = current_metrics.pop() {
             if signal_values.rsrp >= rsrp_threshold {
-                trace!("selective threshold of {} met. Sending via: {}", rsrp_threshold, interface);
+                //trace!("selective threshold of {} met. Sending via: {}", rsrp_threshold, interface);
                 channel.send(outgoing_packet).await.unwrap()
             } else {
-                trace!("selective threshold not met. Using full duplication");
+                //trace!("selective threshold not met. Using full duplication");
                 for channel in packets_to_remotes_tx.values_mut() {
                     channel.send(outgoing_packet.clone()).await.unwrap()
                 }
             }
         } else {
-            trace!("No metrics defined. Using full duplication");
+            //trace!("No metrics defined. Using full duplication");
             for channel in packets_to_remotes_tx.values_mut() {
                 channel.send(outgoing_packet.clone()).await.unwrap()
             }

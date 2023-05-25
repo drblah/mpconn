@@ -12,7 +12,8 @@ use tokio::net::UdpSocket;
 use tokio::sync::watch::Receiver;
 use tokio_util::codec::BytesCodec;
 use tokio_util::udp::UdpFramed;
-use crate::internal_messages::{IncomingUnparsedPacket};
+use crate::async_sendmmsg::AsyncSendmmsg;
+use crate::internal_messages::{IncomingUnparsedPacket, OutgoingUDPPacket};
 use crate::nic_metric::{init_metric, MetricType, MetricValue};
 use crate::settings::MetricConfig;
 
@@ -26,6 +27,8 @@ use crate::settings::MetricConfig;
 pub trait AsyncRemote: Send {
     /// Send the buffer of bytes to the destination SocketAddr
     async fn write(&mut self, buffer: Bytes, destination: SocketAddr);
+
+    async fn send_mmsg(&mut self, outgoing_packets: &Vec<OutgoingUDPPacket>);
     /// Wait for new packets to arrive on the transport layer.
     /// If a packet is received, it is passed along, unparsed
     /// with information about which hardware interface the packet
@@ -43,9 +46,8 @@ pub trait AsyncRemote: Send {
 pub struct UDPremote {
     /// The network interface the AsyncRemote will bind to
     interface: String,
-    input_stream: SplitStream<UdpFramed<BytesCodec>>,
-    output_stream: SplitSink<UdpFramed<BytesCodec>, (Bytes, SocketAddr)>,
-    metrics: MetricType
+    udp_socket: AsyncSendmmsg,
+    metrics: MetricType,
 }
 
 /// UDPLz4Remote builds in top of the UDPRemote by compressing
@@ -58,22 +60,21 @@ pub struct UDPLz4Remote {
 #[async_trait]
 impl AsyncRemote for UDPremote {
     async fn write(&mut self, buffer: Bytes, destination: SocketAddr) {
-        match self.output_stream.send((buffer, destination)).await {
-            Ok(_) => {}
-            Err(e) => match e.kind() {
-                std::io::ErrorKind::NetworkUnreachable => {
-                    error!("{} Network Unreachable", self.interface)
-                }
-                _ => panic!(
-                    "{} Encountered unhandled problem when sending: {:?}",
-                    self.interface, e
-                ),
-            },
+        match self.udp_socket.send_to(buffer, destination).await {
+            Ok(result) => {}
+            Err(e) => panic!(
+                "{} Encountered unhandled problem when sending: {:?}",
+                self.interface, e
+            ),
         }
     }
 
+    async fn send_mmsg(&mut self, outgoing_packets: &Vec<OutgoingUDPPacket>) {
+        self.udp_socket.send_mmsg_to(outgoing_packets).await.unwrap();
+    }
+
     async fn read(&mut self) -> Option<IncomingUnparsedPacket> {
-        match self.input_stream.next().await.unwrap() {
+        match self.udp_socket.next().await {
             Ok((received_bytes, adder)) => {
                 Some(IncomingUnparsedPacket {
                     receiver_interface: self.interface.clone(),
@@ -109,18 +110,12 @@ impl UDPremote {
         bind_to_device: bool,
         metric_config: MetricConfig,
     ) -> UDPremote {
-        let socket = UdpFramed::new(
-            make_socket(&iface, listen_addr, listen_port, bind_to_device),
-            BytesCodec::new(),
-        );
-
-        let (writer, reader) = socket.split();
+        let udp_socket = AsyncSendmmsg::new(make_socket(&iface, listen_addr, listen_port, bind_to_device).into_std().unwrap()).unwrap();
 
         UDPremote {
             interface: iface.clone(),
-            input_stream: reader,
-            output_stream: writer,
-            metrics: init_metric(iface.clone(), metric_config)
+            udp_socket,
+            metrics: init_metric(iface.clone(), metric_config),
         }
     }
 }
@@ -129,22 +124,21 @@ impl UDPremote {
 impl AsyncRemote for UDPLz4Remote {
     async fn write(&mut self, buffer: Bytes, destination: SocketAddr) {
         let compressed = compress_prepend_size(&buffer[..]);
-        match self.inner_udp_remote.output_stream.send((Bytes::from(compressed), destination)).await {
+        match self.inner_udp_remote.udp_socket.send_to(Bytes::from(compressed), destination).await {
             Ok(_) => {}
-            Err(e) => match e.kind() {
-                std::io::ErrorKind::NetworkUnreachable => {
-                    error!("{} Network Unreachable", self.inner_udp_remote.interface)
-                }
-                _ => panic!(
-                    "{} Encountered unhandled problem when sending: {:?}",
-                    self.inner_udp_remote.interface, e
-                ),
-            },
+            Err(e) => panic!(
+                "{} Encountered unhandled problem when sending: {:?}",
+                self.inner_udp_remote.interface, e
+            )
         }
     }
 
+    async fn send_mmsg(&mut self, outgoing_packets: &Vec<OutgoingUDPPacket>) {
+        self.inner_udp_remote.udp_socket.send_mmsg_to(outgoing_packets).await.unwrap();
+    }
+
     async fn read(&mut self) -> Option<IncomingUnparsedPacket> {
-        match self.inner_udp_remote.input_stream.next().await.unwrap() {
+        match self.inner_udp_remote.udp_socket.next().await {
             Ok((received_bytes, adder)) => {
                 let uncompressed = decompress_size_prepended(&received_bytes[..]).unwrap();
 
@@ -183,18 +177,12 @@ impl UDPLz4Remote {
         bind_to_device: bool,
         metric_config: MetricConfig,
     ) -> UDPLz4Remote {
-        let socket = UdpFramed::new(
-            make_socket(&iface, listen_addr, listen_port, bind_to_device),
-            BytesCodec::new(),
-        );
-
-        let (writer, reader) = socket.split();
+        let udp_socket = AsyncSendmmsg::new(make_socket(&iface, listen_addr, listen_port, bind_to_device).into_std().unwrap()).unwrap();
 
         let inner = UDPremote {
             interface: iface.clone(),
-            input_stream: reader,
-            output_stream: writer,
-            metrics: init_metric(iface.clone(), metric_config)
+            udp_socket,
+            metrics: init_metric(iface.clone(), metric_config),
         };
 
         UDPLz4Remote {
