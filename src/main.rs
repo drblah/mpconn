@@ -33,6 +33,7 @@ mod remote_manager;
 mod connection_manager;
 mod local_manager;
 mod nic_metric;
+mod async_sendmmsg;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
