@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use bytes::Bytes;
-use log::{debug};
+use log::{debug, trace};
 use tokio::{select};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
@@ -38,12 +38,48 @@ impl RemoteManager {
                 tokio::spawn(async move {
                     let bc = Arc::get_mut(&mut bc).unwrap();
 
+                    let mut packet_buffer = Vec::with_capacity(128);
+                    let mut packet_stats: usize = 0;
+                    let mut counter: usize = 0;
                     loop {
                         select! {
                             outgoing = bc.recv() => {
+                                packet_buffer.clear();
+
+                                if let Some(outgoing) = outgoing {
+                                    packet_buffer.push(outgoing)
+                                }
+
+                                loop {
+                                    match bc.try_recv() {
+                                        Ok(packet) => packet_buffer.push(packet),
+                                        Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
+                                        Err(e) => unreachable!("Whoops??? {}", e)
+                                    }
+                                }
+                                packet_stats += packet_buffer.len();
+                                counter += 1;
+                                //trace!("Additional packets: {} - counter: {}", packet_buffer.len(), counter);
+
+                                if counter >= 1000 {
+                                    trace!("Average additional packets: {}", packet_stats as f32 / 1000.0);
+                                    counter = 0;
+                                    packet_stats = 0;
+                                }
+
+                                remote.send_mmsg(&packet_buffer).await;
+/*
                                 if let Some(outgoing) = outgoing {
                                     remote.write( Bytes::from(outgoing.packet_bytes), outgoing.destination).await
                                 }
+
+
+
+                                for packet in &packet_buffer {
+                                    remote.write(Bytes::from(packet.packet_bytes.clone()), packet.destination).await
+                                }
+
+                                 */
                             }
 
                             incoming = remote.read() => {

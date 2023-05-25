@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use log::{debug, error, log_enabled, info, Level};
 
-extern crate core;
 extern crate alloc;
 
 use crate::messages::{Packet};
