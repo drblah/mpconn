@@ -8,6 +8,7 @@ use std::net::{SocketAddr, SocketAddrV4};
 use std::os::fd::AsRawFd;
 use std::panic::PanicInfo;
 use bytes::{Bytes, BytesMut};
+use log::trace;
 
 pub struct AsyncSendmmsg {
     inner: AsyncFd<UdpSocket>,
@@ -22,7 +23,7 @@ impl AsyncSendmmsg {
         )
     }
 
-    pub async fn send_mmsg_to(&mut self, outgoing_packets: Vec<OutgoingUDPPacket>) -> Result<usize> {
+    pub async fn send_mmsg_to(&mut self, outgoing_packets: &Vec<OutgoingUDPPacket>) -> Result<usize> {
         let mut guard = self.inner.writable().await?;
 
         let batch_size = outgoing_packets.len();
@@ -30,7 +31,7 @@ impl AsyncSendmmsg {
         let mut addresses = Vec::with_capacity(1 + batch_size);
         let mut data = MultiHeaders::preallocate(1 + batch_size, None);
 
-        for packet in &outgoing_packets {
+        for packet in outgoing_packets {
             let msg = packet.packet_bytes.as_slice();
 
             iovs.push([IoSlice::new(msg)]);
@@ -68,19 +69,25 @@ impl AsyncSendmmsg {
             .try_io(|inner| inner.get_ref().send_to(&bytes, destination))
         {
             Ok(result) => Ok(result?),
-            Err(_e) => Err(anyhow!("Error sending packet"))
+            Err(e) => Err(anyhow!("Error sending packet"))
         }
     }
 
     pub async fn next(&mut self) -> Result<(BytesMut, SocketAddr)> {
-        let mut receive_buffer = BytesMut::with_capacity(65535);
+        let mut receive_buffer = [0u8; 65535];
         loop {
             let mut guard = self.inner.readable().await?;
 
             match guard
                 .try_io(|inner| inner.get_ref().recv_from(&mut receive_buffer))
             {
-                Ok(Ok((_number_of_bytes, source_address))) => return Ok((receive_buffer, source_address)),
+                Ok(Ok((number_of_bytes, source_address))) => {
+                    let received_bytes = &receive_buffer[..number_of_bytes];
+
+                    let received_bytes = BytesMut::from(received_bytes);
+
+                    return Ok((received_bytes, source_address))
+                }
                 Ok(Err(e)) => Err(anyhow!(e.to_string()))?,
                 Err(_would_block) => continue,
             }
