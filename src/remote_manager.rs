@@ -82,9 +82,12 @@ impl RemoteManager {
                                  */
                             }
 
-                            incoming = remote.read() => {
-                                let incoming = incoming.unwrap();
-                                mpsc_channel.send(incoming).await.unwrap();
+                            incoming = remote.read_mmsg() => {
+
+                                for inc in incoming {
+                                    let inc = inc.unwrap();
+                                    mpsc_channel.send(inc).await.unwrap();
+                                }
                             }
                             /*
                             _ = metric_channel.changed() => {

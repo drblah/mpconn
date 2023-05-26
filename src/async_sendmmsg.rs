@@ -1,14 +1,17 @@
-use std::io::IoSlice;
+use std::io::{IoSlice, IoSliceMut};
+use std::iter::zip;
 use tokio::io::unix::AsyncFd;
-use std::net::UdpSocket;
+use std::net::{Ipv4Addr, UdpSocket};
 use anyhow::{anyhow, bail, Result};
-use nix::sys::socket::{MsgFlags, MultiHeaders, sendmmsg, SockaddrIn};
+use nix::sys::socket::{MsgFlags, MultiHeaders, MultiResults, recvmmsg, RecvMsg, sendmmsg, SockaddrIn};
 use crate::internal_messages::OutgoingUDPPacket;
 use std::net::{SocketAddr, SocketAddrV4};
 use std::os::fd::AsRawFd;
 use std::panic::PanicInfo;
 use bytes::{Bytes, BytesMut};
+use libc::c_int;
 use log::trace;
+use nix::dir::Type::Socket;
 
 pub struct AsyncSendmmsg {
     inner: AsyncFd<UdpSocket>,
@@ -60,6 +63,67 @@ impl AsyncSendmmsg {
             Ok(result) => Ok(result?),
             Err(e) => Err(anyhow!("Error sending with sendmmsg"))
         }
+    }
+
+    pub async fn recvmmsg(&mut self) -> Result<Vec<(BytesMut, SocketAddr)>> {
+        let mut messages = std::collections::LinkedList::new();
+
+        let mut receive_buffers = [[0u8; 65535]; 32];
+        messages.extend(
+            receive_buffers
+                .iter_mut()
+                .map(|buffer| [IoSliceMut::new(&mut buffer[..])]),
+        );
+
+        let mut received = Vec::new();
+
+
+        loop {
+            let mut guard = self.inner.readable().await?;
+
+            // MultiHeaders are not Send. So we have to initialize them here, AFTER the readable().await?
+            let mut data = MultiHeaders::<SockaddrIn>::preallocate(messages.len(), None);
+            match guard
+                .try_io(|inner| Ok(recvmmsg(inner.get_ref().as_raw_fd(), &mut data, messages.iter(), MsgFlags::MSG_WAITFORONE, None)))
+            {
+                Ok(Ok(Ok(inner_result))) => {
+                    let inner_result: Vec<RecvMsg<SockaddrIn>> = inner_result.collect();
+
+                    for RecvMsg { address, bytes, .. } in inner_result.into_iter() {
+                        if let Some(address) = address {
+                            received.push(
+                                (
+                                    SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::from(address.ip()), address.port())),
+                                    bytes
+                                )
+                            )
+                        }
+                    }
+                    break
+                },
+                Ok(Ok(Err(e))) => match e {
+                    nix::errno::Errno::EAGAIN => {
+                        continue
+                    }
+                    _ => { panic!("Whut?, {}", e) }
+                },
+                Ok(Err(e)) => Err(anyhow!(e.to_string()))?,
+                Err(_would_block) => continue
+            }
+        }
+
+        let mut received_messages = Vec::new();
+
+        for (msg, (address, length)) in zip(receive_buffers, received) {
+            received_messages.push(
+                (
+                    BytesMut::from(&msg[..length]),
+                    address
+                )
+            )
+        }
+
+        Ok(received_messages)
     }
 
     pub async fn send_to(&mut self, bytes: Bytes, destination: SocketAddr) -> Result<usize> {
