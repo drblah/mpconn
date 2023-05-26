@@ -1,5 +1,7 @@
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::Arc;
+use bytes::BytesMut;
 use log::{trace};
 use tokio::{select};
 use tokio::sync::{mpsc, watch};
@@ -40,7 +42,13 @@ impl RemoteManager {
                     let mut packet_buffer = Vec::with_capacity(128);
                     let mut packet_stats: usize = 0;
                     let mut counter: usize = 0;
+                    let mut receive_buffers = [[0u8; 1500]; 128];
+                    let mut receive_packet_buffer: Vec<(BytesMut, SocketAddr)> = Vec::with_capacity(128);
 
+                    let mut receive_loop_counter: usize = 0;
+                    let mut receive_batch_size_counter: usize = 0;
+
+                    let stats_window = 10000;
 
                     loop {
                         select! {
@@ -53,7 +61,12 @@ impl RemoteManager {
 
                                 loop {
                                     match bc.try_recv() {
-                                        Ok(packet) => packet_buffer.push(packet),
+                                        Ok(packet) => {
+                                            packet_buffer.push(packet);
+                                            if packet_buffer.len() == 128 {
+                                                break
+                                            }
+                                        }
                                         Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
                                         Err(e) => unreachable!("Whoops??? {}", e)
                                     }
@@ -62,8 +75,8 @@ impl RemoteManager {
                                 counter += 1;
                                 //trace!("Additional packets: {} - counter: {}", packet_buffer.len(), counter);
 
-                                if counter >= 1000 {
-                                    trace!("Average additional packets: {}", packet_stats as f32 / 1000.0);
+                                if counter >= stats_window {
+                                    trace!("Average additional packets: {}", packet_stats as f32 / stats_window as f32);
                                     counter = 0;
                                     packet_stats = 0;
                                 }
@@ -72,11 +85,36 @@ impl RemoteManager {
 
                             }
 
-                            incoming = remote.read_mmsg() => {
-                                for inc in incoming {
-                                    let inc = inc.unwrap();
-                                    mpsc_channel.send(inc).await.unwrap();
+                            incoming = remote.read_mmsg(&mut receive_buffers, &mut receive_packet_buffer) => {
+                                match incoming {
+                                    Ok(receiver_interface) => {
+                                        for (bytes, received_from) in &receive_packet_buffer {
+                                            let packet = IncomingUnparsedPacket {
+                                                receiver_interface: receiver_interface.clone(),
+                                                received_from: *received_from,
+                                                bytes: bytes.to_vec()
+                                            };
+
+                                            mpsc_channel.send(packet).await.unwrap();
+                                        }
+
+                                        receive_loop_counter += 1;
+                                        receive_batch_size_counter += receive_packet_buffer.len();
+
+                                        if receive_loop_counter >= stats_window {
+                                            trace!("Average receive batch size: {}", receive_batch_size_counter as f32 / stats_window as f32);
+                                            receive_loop_counter = 0;
+                                            receive_batch_size_counter = 0;
+                                        }
+
+                                    }
+                                    Err(e) => {
+                                        panic!("Failed to read_mmsg: {}", e);
+                                    }
                                 }
+
+                                receive_packet_buffer.clear();
+
                             }
                         }
                     }

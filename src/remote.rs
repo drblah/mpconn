@@ -1,6 +1,6 @@
 use std::io::Error;
 use async_trait::async_trait;
-use bytes::{Bytes};
+use bytes::{Bytes, BytesMut};
 use lz4_flex::{compress_prepend_size, decompress_size_prepended};
 use socket2::{Domain, Socket, Type};
 use std::net::{IpAddr, UdpSocket as std_udp};
@@ -8,6 +8,8 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use log::trace;
 use tokio::net::UdpSocket;
 use tokio::sync::watch::Receiver;
+use anyhow::Result;
+use libc::qsort;
 use crate::async_sendmmsg::AsyncSendmmsg;
 use crate::internal_messages::{IncomingUnparsedPacket, OutgoingUDPPacket};
 use crate::nic_metric::{init_metric, MetricType, MetricValue};
@@ -31,7 +33,7 @@ pub trait AsyncRemote: Send {
     /// was received on, and the source address.
     async fn read(&mut self) -> Option<IncomingUnparsedPacket>;
 
-    async fn read_mmsg(&mut self) -> Vec<Option<IncomingUnparsedPacket>>;
+    async fn read_mmsg(&mut self, message_buffers: &mut [[u8; 1500]; 128], received_messages: &mut Vec<(BytesMut, SocketAddr)>) -> Result<String>;
 
     /// Get the OS level name of the interface the AsyncRemote
     /// is configured to use.
@@ -85,29 +87,16 @@ impl AsyncRemote for UDPremote {
         }
     }
 
-    async fn read_mmsg(&mut self) -> Vec<Option<IncomingUnparsedPacket>> {
-        let mut result = Vec::new();
-
-        match self.udp_socket.recvmmsg().await {
-            Ok(new_packages) => {
-                for (packet_bytes, source_address) in new_packages {
-                    result.push(
-                        Some(
-                            IncomingUnparsedPacket {
-                                receiver_interface: self.interface.clone(),
-                                received_from: source_address,
-                                bytes: packet_bytes.to_vec(),
-                            }
-                        )
-                    )
-                }
+    async fn read_mmsg(&mut self, message_buffers: &mut [[u8; 1500]; 128], received_messages: &mut Vec<(BytesMut, SocketAddr)>) -> Result<String> {
+        match self.udp_socket.recvmmsg(message_buffers, received_messages).await {
+            Ok(()) => {
+                Ok(self.interface.clone())
             }
             Err(e) => {
                 trace!("{}" ,e);
+                Err(anyhow::Error::from(e))
             }
         }
-
-        result
     }
 
     fn get_interface(&self) -> String {
@@ -176,23 +165,8 @@ impl AsyncRemote for UDPLz4Remote {
         }
     }
 
-    async fn read_mmsg(&mut self) -> Vec<Option<IncomingUnparsedPacket>> {
-        let mut result = Vec::new();
-        let new_packages = self.inner_udp_remote.udp_socket.recvmmsg().await.unwrap();
-
-        for (packet_bytes, source_address) in new_packages {
-            result.push(
-                Some(
-                    IncomingUnparsedPacket {
-                        receiver_interface: self.inner_udp_remote.interface.clone(),
-                        received_from: source_address,
-                        bytes: packet_bytes.to_vec(),
-                    }
-                )
-            )
-        }
-
-        result
+    async fn read_mmsg(&mut self, message_buffers: &mut [[u8; 1500]; 128], received_messages: &mut Vec<(BytesMut, SocketAddr)>) -> Result<String> {
+        todo!()
     }
 
     fn get_interface(&self) -> String {
