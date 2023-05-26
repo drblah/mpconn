@@ -1,17 +1,13 @@
 use std::io::Error;
 use async_trait::async_trait;
 use bytes::{Bytes};
-use futures::prelude::*;
-use futures::stream::{SplitSink, SplitStream, StreamExt};
 use lz4_flex::{compress_prepend_size, decompress_size_prepended};
 use socket2::{Domain, Socket, Type};
 use std::net::{IpAddr, UdpSocket as std_udp};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use log::error;
+use log::trace;
 use tokio::net::UdpSocket;
 use tokio::sync::watch::Receiver;
-use tokio_util::codec::BytesCodec;
-use tokio_util::udp::UdpFramed;
 use crate::async_sendmmsg::AsyncSendmmsg;
 use crate::internal_messages::{IncomingUnparsedPacket, OutgoingUDPPacket};
 use crate::nic_metric::{init_metric, MetricType, MetricValue};
@@ -64,7 +60,7 @@ pub struct UDPLz4Remote {
 impl AsyncRemote for UDPremote {
     async fn write(&mut self, buffer: Bytes, destination: SocketAddr) {
         match self.udp_socket.send_to(buffer, destination).await {
-            Ok(result) => {}
+            Ok(_result) => {}
             Err(e) => panic!(
                 "{} Encountered unhandled problem when sending: {:?}",
                 self.interface, e
@@ -91,18 +87,24 @@ impl AsyncRemote for UDPremote {
 
     async fn read_mmsg(&mut self) -> Vec<Option<IncomingUnparsedPacket>> {
         let mut result = Vec::new();
-        let new_packages = self.udp_socket.recvmmsg().await.unwrap();
 
-        for (packet_bytes, source_address) in new_packages {
-            result.push(
-                Some(
-                    IncomingUnparsedPacket {
-                        receiver_interface: self.interface.clone(),
-                        received_from: source_address,
-                        bytes: packet_bytes.to_vec(),
-                    }
-                )
-            )
+        match self.udp_socket.recvmmsg().await {
+            Ok(new_packages) => {
+                for (packet_bytes, source_address) in new_packages {
+                    result.push(
+                        Some(
+                            IncomingUnparsedPacket {
+                                receiver_interface: self.interface.clone(),
+                                received_from: source_address,
+                                bytes: packet_bytes.to_vec(),
+                            }
+                        )
+                    )
+                }
+            }
+            Err(e) => {
+                trace!("{}" ,e);
+            }
         }
 
         result

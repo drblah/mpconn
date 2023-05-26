@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use log::{debug, error, log_enabled, info, Level};
+use log::{info};
 
 extern crate alloc;
 extern crate core;

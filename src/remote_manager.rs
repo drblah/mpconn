@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use bytes::Bytes;
-use log::{debug, trace};
+use log::{trace};
 use tokio::{select};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
@@ -32,7 +31,7 @@ impl RemoteManager {
             let mut remote = Self::make_remote(dev.clone());
             let metric_channel = remote.get_metric_channel();
 
-            metric_channels.insert(device_name, metric_channel);
+            metric_channels.insert(device_name.clone(), metric_channel);
 
             tasks.push(
                 tokio::spawn(async move {
@@ -41,6 +40,8 @@ impl RemoteManager {
                     let mut packet_buffer = Vec::with_capacity(128);
                     let mut packet_stats: usize = 0;
                     let mut counter: usize = 0;
+
+
                     loop {
                         select! {
                             outgoing = bc.recv() => {
@@ -68,41 +69,15 @@ impl RemoteManager {
                                 }
 
                                 remote.send_mmsg(&packet_buffer).await;
-/*
-                                if let Some(outgoing) = outgoing {
-                                    remote.write( Bytes::from(outgoing.packet_bytes), outgoing.destination).await
-                                }
 
-
-
-                                for packet in &packet_buffer {
-                                    remote.write(Bytes::from(packet.packet_bytes.clone()), packet.destination).await
-                                }
-
-                                 */
                             }
 
                             incoming = remote.read_mmsg() => {
-
                                 for inc in incoming {
                                     let inc = inc.unwrap();
                                     mpsc_channel.send(inc).await.unwrap();
                                 }
                             }
-                            /*
-                            _ = metric_channel.changed() => {
-                                debug!("metric tick!");
-                                let new_metric = metric_channel.borrow().clone();
-                                match new_metric {
-                                        MetricValue::Nr5gSignalValue(rsrp) => {
-                                            debug!("{:?}", rsrp);
-                                        }
-                                        MetricValue::NothingValue => { debug!("NothingValue!")  }
-                                }
-
-                            }
-
-                             */
                         }
                     }
                 })
