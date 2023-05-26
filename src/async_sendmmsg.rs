@@ -3,15 +3,12 @@ use std::iter::zip;
 use tokio::io::unix::AsyncFd;
 use std::net::{Ipv4Addr, UdpSocket};
 use anyhow::{anyhow, bail, Result};
-use nix::sys::socket::{MsgFlags, MultiHeaders, MultiResults, recvmmsg, RecvMsg, sendmmsg, SockaddrIn};
 use crate::internal_messages::OutgoingUDPPacket;
 use std::net::{SocketAddr, SocketAddrV4};
 use std::os::fd::AsRawFd;
-use std::panic::PanicInfo;
+use std::time::Duration;
 use bytes::{Bytes, BytesMut};
-use libc::c_int;
 use log::trace;
-use nix::dir::Type::Socket;
 
 pub struct AsyncSendmmsg {
     inner: AsyncFd<UdpSocket>,
@@ -32,7 +29,7 @@ impl AsyncSendmmsg {
         let batch_size = outgoing_packets.len();
         let mut iovs = Vec::with_capacity(1 + batch_size);
         let mut addresses = Vec::with_capacity(1 + batch_size);
-        let mut data = MultiHeaders::preallocate(1 + batch_size, None);
+        let mut data = nix::sys::socket::MultiHeaders::preallocate(1 + batch_size, None);
 
         for packet in outgoing_packets {
             let msg = packet.packet_bytes.as_slice();
@@ -43,11 +40,11 @@ impl AsyncSendmmsg {
                 SocketAddr::V6(..) => bail!("Got an IPv6 address, which we cant handle yet..."),
             };
 
-            addresses.push(Some(SockaddrIn::from(address)));
+            addresses.push(Some(nix::sys::socket::SockaddrIn::from(address)));
         }
 
         match guard
-            .try_io(|inner| match sendmmsg(inner.get_ref().as_raw_fd(), &mut data, &iovs, &addresses, [], MsgFlags::empty()) {
+            .try_io(|inner| match nix::sys::socket::sendmmsg(inner.get_ref().as_raw_fd(), &mut data, &iovs, &addresses, [], nix::sys::socket::MsgFlags::empty()) {
                 Ok(sent) => {
                     let mut total_bytes = 0;
                     for res in sent {
@@ -61,7 +58,7 @@ impl AsyncSendmmsg {
 
         {
             Ok(result) => Ok(result?),
-            Err(e) => Err(anyhow!("Error sending with sendmmsg"))
+            Err(_would_block) => Err(anyhow!("Error sending with sendmmsg"))
         }
     }
 
@@ -82,14 +79,21 @@ impl AsyncSendmmsg {
             let mut guard = self.inner.readable().await?;
 
             // MultiHeaders are not Send. So we have to initialize them here, AFTER the readable().await?
-            let mut data = MultiHeaders::<SockaddrIn>::preallocate(messages.len(), None);
+            let mut data = nix::sys::socket::MultiHeaders::<nix::sys::socket::SockaddrIn>::preallocate(messages.len(), None);
             match guard
-                .try_io(|inner| Ok(recvmmsg(inner.get_ref().as_raw_fd(), &mut data, messages.iter(), MsgFlags::MSG_WAITFORONE, None)))
-            {
-                Ok(Ok(Ok(inner_result))) => {
-                    let inner_result: Vec<RecvMsg<SockaddrIn>> = inner_result.collect();
+                .try_io(|inner| match nix::sys::socket::recvmmsg(inner.get_ref().as_raw_fd(), &mut data, messages.iter(), nix::sys::socket::MsgFlags::empty(), None) {
+                    Ok(inner_result) => {
+                        let inner_result: Vec<nix::sys::socket::RecvMsg<nix::sys::socket::SockaddrIn>> = inner_result.collect();
 
-                    for RecvMsg { address, bytes, .. } in inner_result.into_iter() {
+                        Ok(inner_result)
+                    }
+                    Err(e) => {
+                        Err(std::io::Error::from(std::io::ErrorKind::WouldBlock))
+                    }
+                })
+            {
+                Ok(Ok(outer_result)) => {
+                    for nix::sys::socket::RecvMsg { address, bytes, .. } in outer_result.into_iter() {
                         if let Some(address) = address {
                             received.push(
                                 (
@@ -100,15 +104,11 @@ impl AsyncSendmmsg {
                         }
                     }
                     break
-                },
-                Ok(Ok(Err(e))) => match e {
-                    nix::errno::Errno::EAGAIN => {
-                        continue
-                    }
-                    _ => { panic!("Whut?, {}", e) }
-                },
+                }
                 Ok(Err(e)) => Err(anyhow!(e.to_string()))?,
-                Err(_would_block) => continue
+                Err(_would_block) => {
+                    continue
+                }
             }
         }
 
@@ -133,7 +133,7 @@ impl AsyncSendmmsg {
             .try_io(|inner| inner.get_ref().send_to(&bytes, destination))
         {
             Ok(result) => Ok(result?),
-            Err(e) => Err(anyhow!("Error sending packet"))
+            Err(_would_blocke) => Err(anyhow!("Error sending packet"))
         }
     }
 
