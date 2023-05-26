@@ -62,12 +62,11 @@ impl AsyncSendmmsg {
         }
     }
 
-    pub async fn recvmmsg(&mut self) -> Result<Vec<(BytesMut, SocketAddr)>> {
+    pub async fn recvmmsg(&mut self, message_buffers: &mut [[u8; 1500]; 128], received_messages: &mut Vec<(BytesMut, SocketAddr)>) -> Result<()> {
         let mut messages = std::collections::LinkedList::new();
 
-        let mut receive_buffers = [[0u8; 65535]; 32];
         messages.extend(
-            receive_buffers
+            message_buffers
                 .iter_mut()
                 .map(|buffer| [IoSliceMut::new(&mut buffer[..])]),
         );
@@ -112,9 +111,9 @@ impl AsyncSendmmsg {
             }
         }
 
-        let mut received_messages = Vec::new();
+        //let mut received_messages = Vec::new();
 
-        for (msg, (address, length)) in zip(receive_buffers, received) {
+        for (msg, (address, length)) in zip(message_buffers, received) {
             received_messages.push(
                 (
                     BytesMut::from(&msg[..length]),
@@ -123,7 +122,7 @@ impl AsyncSendmmsg {
             )
         }
 
-        Ok(received_messages)
+        Ok(())
     }
 
     pub async fn send_to(&mut self, bytes: Bytes, destination: SocketAddr) -> Result<usize> {
