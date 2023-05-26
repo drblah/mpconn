@@ -444,7 +444,7 @@ impl ConnectionManager {
 
         // Get the interface with the best signal, if it is above the threshold.
         // Otherwise send on all available interfaces
-        current_metrics.sort_by(|a, b| b.1.rsrp.partial_cmp(&a.1.rsrp).expect(format!("Failed to sort current metrics. We tried to compare: {:?} and {:?}", b.1, a.1).as_str()));
+        current_metrics.sort_by(|a, b| a.1.rsrp.partial_cmp(&b.1.rsrp).expect(format!("Failed to sort current metrics. We tried to compare: {:?} and {:?}", a.1, b.1).as_str()));
         if let Some((interface, signal_values, channel)) = current_metrics.pop() {
             if signal_values.rsrp >= rsrp_threshold {
                 trace!("selective threshold of {} met. Sending via: {}", rsrp_threshold, interface);
