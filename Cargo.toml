@@ -29,4 +29,5 @@ env_logger = "0.10.0"
 linux-info = { git = "https://github.com/drblah/linux-info", branch = "device", features = ["network"] }
 anyhow = "1.0"
 wpactrl = "0.5.1"
-nix = { version = "0.26.2", features = ["default"] }
+#nix = { version = "0.26.2", features = ["default"] }
+nix = { git = "https://github.com/stevenengler/nix.git", branch = "msg-waitforone", features = ["default"] }

@@ -6,6 +6,7 @@ use std::sync::Arc;
 use log::{debug, error, log_enabled, info, Level};
 
 extern crate alloc;
+extern crate core;
 
 use crate::messages::{Packet};
 use clap::Parser;

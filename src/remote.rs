@@ -34,6 +34,9 @@ pub trait AsyncRemote: Send {
     /// with information about which hardware interface the packet
     /// was received on, and the source address.
     async fn read(&mut self) -> Option<IncomingUnparsedPacket>;
+
+    async fn read_mmsg(&mut self) -> Vec<Option<IncomingUnparsedPacket>>;
+
     /// Get the OS level name of the interface the AsyncRemote
     /// is configured to use.
     fn get_interface(&self) -> String;
@@ -84,6 +87,25 @@ impl AsyncRemote for UDPremote {
             }
             Err(_e) => None,
         }
+    }
+
+    async fn read_mmsg(&mut self) -> Vec<Option<IncomingUnparsedPacket>> {
+        let mut result = Vec::new();
+        let new_packages = self.udp_socket.recvmmsg().await.unwrap();
+
+        for (packet_bytes, source_address) in new_packages {
+            result.push(
+                Some(
+                    IncomingUnparsedPacket {
+                        receiver_interface: self.interface.clone(),
+                        received_from: source_address,
+                        bytes: packet_bytes.to_vec(),
+                    }
+                )
+            )
+        }
+
+        result
     }
 
     fn get_interface(&self) -> String {
@@ -150,6 +172,25 @@ impl AsyncRemote for UDPLz4Remote {
             }
             Err(_e) => None,
         }
+    }
+
+    async fn read_mmsg(&mut self) -> Vec<Option<IncomingUnparsedPacket>> {
+        let mut result = Vec::new();
+        let new_packages = self.inner_udp_remote.udp_socket.recvmmsg().await.unwrap();
+
+        for (packet_bytes, source_address) in new_packages {
+            result.push(
+                Some(
+                    IncomingUnparsedPacket {
+                        receiver_interface: self.inner_udp_remote.interface.clone(),
+                        received_from: source_address,
+                        bytes: packet_bytes.to_vec(),
+                    }
+                )
+            )
+        }
+
+        result
     }
 
     fn get_interface(&self) -> String {
