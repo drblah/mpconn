@@ -27,7 +27,7 @@ impl Layer2Director {
         }
     }
 
-    pub fn learn_path(&mut self, peer_id: u16, packet_bytes: &BytesMut) {
+    pub fn learn_path(&mut self, peer_id: u16, packet_bytes: &[u8]) {
         if let Some(ethernet_source_address) = self.extract_ether_src(packet_bytes) {
             if !self.mac_table.contains_key(&ethernet_source_address) {
                 debug!("Inserting new MAC {:?} for peer {}", ethernet_source_address, peer_id);
@@ -39,7 +39,7 @@ impl Layer2Director {
         }
     }
 
-    pub fn get_path(&self, packet_bytes: &BytesMut) -> Option<Path> {
+    pub fn get_path(&self, packet_bytes: &[u8]) -> Option<Path> {
         if let Some(destination_ethernet_address) = self.extract_ether_dst(packet_bytes) {
             // In case we are broadcasting, we need to handle this special case and tell
             // the main event loop to send to all known peers
@@ -54,7 +54,7 @@ impl Layer2Director {
         }
     }
 
-    pub fn extract_ether_src(&self, packet_bytes: &BytesMut) -> Option<[u8; 6]> {
+    pub fn extract_ether_src(&self, packet_bytes: &[u8]) -> Option<[u8; 6]> {
         let ether_src_address = match SlicedPacket::from_ethernet(packet_bytes) {
             Ok(ether_packet) => {
                 if let Some(LinkSlice::Ethernet2(link_layer_content)) = ether_packet.link {
@@ -74,7 +74,7 @@ impl Layer2Director {
     }
 
 
-    pub fn extract_ether_dst(&self, packet_bytes: &BytesMut) -> Option<[u8; 6]> {
+    pub fn extract_ether_dst(&self, packet_bytes: &[u8]) -> Option<[u8; 6]> {
         let ether_dst_address = match SlicedPacket::from_ethernet(packet_bytes) {
             Ok(ether_packet) => {
                 if let Some(LinkSlice::Ethernet2(link_layer_content)) = ether_packet.link {
