@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use fnv::FnvHashMap;
 use std::net::SocketAddr;
 use std::time::{Duration, SystemTime};
 use log::debug;
@@ -6,13 +6,13 @@ use crate::sequencer::Sequencer;
 use crate::settings::PeerConfig;
 
 pub struct PeerList {
-    peers: HashMap<u16, Peer>,
+    peers: FnvHashMap<u16, Peer>,
     stale_time_limit: Duration,
 }
 
 #[derive(Debug, )]
 pub struct Peer {
-    connections: HashMap<SocketAddr, SystemTime>,
+    connections: FnvHashMap<SocketAddr, SystemTime>,
     tx_counter: u64,
     sequencer: Sequencer,
 }
@@ -20,14 +20,14 @@ pub struct Peer {
 impl PeerList {
     pub fn new(peers: Option<Vec<PeerConfig>>) -> Self {
         let mut peer_list = PeerList {
-            peers: HashMap::new(),
+            peers: FnvHashMap::default(),
             stale_time_limit: Duration::from_secs(30),
         };
 
         if let Some(peers) = peers {
             for peer in peers {
                 let mut new_peer = Peer {
-                    connections: HashMap::new(),
+                    connections: FnvHashMap::default(),
                     tx_counter: 0,
                     sequencer: Sequencer::new(Duration::from_millis(3)),
                 };
@@ -71,7 +71,7 @@ impl PeerList {
                 debug!("Inserting new peer with ID: {} and the connection: {}", peer_id, address);
 
                 let mut new_peer = Peer {
-                    connections: HashMap::new(),
+                    connections: FnvHashMap::default(),
                     tx_counter: 0,
                     sequencer: Sequencer::new(Duration::from_millis(3)),
                 };

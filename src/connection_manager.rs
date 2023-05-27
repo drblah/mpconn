@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use fnv::FnvHashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -24,7 +24,7 @@ type BincodeSettings = WithOtherTrailing<WithOtherIntEncoding<DefaultOptions, Va
 pub struct ConnectionManager {
     bincode_config: BincodeSettings,
     interface_logger: Option<BufWriter<File>>,
-    packets_to_remotes_tx: HashMap<String, Arc<mpsc::Sender<OutgoingUDPPacket>>>,
+    packets_to_remotes_tx: FnvHashMap<String, Arc<mpsc::Sender<OutgoingUDPPacket>>>,
     packets_from_remotes_rx: mpsc::Receiver<IncomingUnparsedPacket>,
     packets_to_local_tx: mpsc::Sender<Vec<u8>>,
     packets_from_local_rx: mpsc::Receiver<Vec<u8>>,
@@ -35,18 +35,18 @@ pub struct ConnectionManager {
     maintenance_interval: time::Interval,
     global_sequencer_interval: time::Interval,
     keepalive_interval: time::Interval,
-    metric_channels: HashMap<String, watch::Receiver<MetricValue>>
+    metric_channels: FnvHashMap<String, watch::Receiver<MetricValue>>
 }
 
 impl ConnectionManager {
     pub fn new(
         settings: SettingsFile,
         interface_logger: Option<BufWriter<File>>,
-        packets_to_remotes_tx: HashMap<String, Arc<mpsc::Sender<OutgoingUDPPacket>>>,
+        packets_to_remotes_tx: FnvHashMap<String, Arc<mpsc::Sender<OutgoingUDPPacket>>>,
         packets_from_remotes_rx: mpsc::Receiver<IncomingUnparsedPacket>,
         packets_to_local_tx: mpsc::Sender<Vec<u8>>,
         packets_from_local_rx: mpsc::Receiver<Vec<u8>>,
-        metric_channels: HashMap<String, watch::Receiver<MetricValue>>
+        metric_channels: FnvHashMap<String, watch::Receiver<MetricValue>>,
     ) -> ConnectionManager
     {
         let bincode_config = bincode::options()
@@ -421,7 +421,7 @@ impl ConnectionManager {
         if_log.write_all(log_string.as_ref()).await.unwrap();
     }
 
-    async fn selective_duplication(outgoing_packet: OutgoingUDPPacket, packets_to_remotes_tx: &mut HashMap<String, Arc<mpsc::Sender<OutgoingUDPPacket>>>, metrics_channels: &HashMap<String, watch::Receiver<MetricValue>>) {
+    async fn selective_duplication(outgoing_packet: OutgoingUDPPacket, packets_to_remotes_tx: &mut FnvHashMap<String, Arc<mpsc::Sender<OutgoingUDPPacket>>>, metrics_channels: &FnvHashMap<String, watch::Receiver<MetricValue>>) {
         let mut current_metrics = Vec::new();
         let rsrp_threshold = -60 as f64;
 
