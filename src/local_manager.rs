@@ -14,7 +14,10 @@ impl LocalManager {
         let mut local = local::Local::new(settings);
 
         let manager_task = tokio::spawn(async move {
-            let mut tun_buf = BytesMut::with_capacity(65535);
+            // TODO: Determine a reasonable size of this buffer, which will still allow us to handle a max size UDP datagram
+            // The size of this buffer has a pretty large impact on performance so it is set to 1500, for now
+            // But we should see if we can find a way to make it large enough to handle a max size UDP
+            let mut tun_buf = BytesMut::with_capacity(1500);
             loop {
                 select! {
 
