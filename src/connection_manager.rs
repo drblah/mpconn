@@ -241,13 +241,12 @@ impl ConnectionManager {
 
             while peer_sequencer.have_next_packet() {
                 if let Some(next_packet) = peer_sequencer.get_next_packet() {
-                    let output = BytesMut::from(next_packet.bytes.as_slice());
 
                     // Before sending this packet out on the local interface, we first try to extract
                     // information we can use for routing/switching
                     match &mut self.traffic_director {
                         traffic_director::DirectorType::Layer2(td) => {
-                            td.learn_path(next_packet.peer_id, &output);
+                            td.learn_path(next_packet.peer_id, next_packet.bytes.as_slice());
                         },
                         traffic_director::DirectorType::Layer3(_td) => {}
                     }
