@@ -252,7 +252,7 @@ impl ConnectionManager {
     ) {
         match &self.traffic_director {
             DirectorType::Layer2(td) => {
-                if let Some(destination_peer) = td.get_path(&BytesMut::from(packet.as_slice())) {
+                if let Some(destination_peer) = td.get_path(packet.as_slice()) {
                     match destination_peer {
                         traffic_director::Path::Peer(peer_id) => {
                             let tx_counter = self.peer_list.get_peer_tx_counter(peer_id);
@@ -308,7 +308,7 @@ impl ConnectionManager {
             }
 
             DirectorType::Layer3(td) => {
-                if let Some(destination_peer) = td.get_route(&BytesMut::from(packet.as_slice())) {
+                if let Some(destination_peer) = td.get_route(packet.as_slice()) {
                     let tx_counter = self.peer_list.get_peer_tx_counter(destination_peer);
 
                     let packet = messages::Packet {
