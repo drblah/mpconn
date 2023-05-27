@@ -43,22 +43,24 @@ impl AsyncSendmmsg {
             addresses.push(Some(nix::sys::socket::SockaddrIn::from(address)));
         }
 
-        match guard
-            .try_io(|inner| match nix::sys::socket::sendmmsg(inner.get_ref().as_raw_fd(), &mut data, &iovs, &addresses, [], nix::sys::socket::MsgFlags::empty()) {
-                Ok(sent) => {
-                    let mut total_bytes = 0;
-                    for res in sent {
-                        total_bytes += res.bytes
+        loop {
+            match guard
+                .try_io(|inner| match nix::sys::socket::sendmmsg(inner.get_ref().as_raw_fd(), &mut data, &iovs, &addresses, [], nix::sys::socket::MsgFlags::empty()) {
+                    Ok(sent) => {
+                        let mut total_bytes = 0;
+                        for res in sent {
+                            total_bytes += res.bytes
+                        }
+
+                        return Ok(total_bytes)
                     }
+                    Err(e) => return Err(std::io::Error::from(e))
+                })
 
-                    Ok(total_bytes)
-                }
-                Err(e) => Err(std::io::Error::from(e))
-            })
-
-        {
-            Ok(result) => Ok(result?),
-            Err(_would_block) => Err(anyhow!("Error sending with sendmmsg"))
+            {
+                Ok(result) => return Ok(result?),
+                Err(_would_block) => continue
+            }
         }
     }
 
