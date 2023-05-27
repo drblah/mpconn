@@ -31,3 +31,4 @@ anyhow = "1.0"
 wpactrl = "0.5.1"
 #nix = { version = "0.26.2", features = ["default"] }
 nix = { git = "https://github.com/stevenengler/nix.git", branch = "msg-waitforone", features = ["default"] }
+fnv = "1.0.7"

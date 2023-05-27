@@ -1,7 +1,7 @@
 #![feature(io_error_more)]
 #![feature(hash_drain_filter)]
 
-use std::collections::HashMap;
+use fnv::FnvHashMap;
 use std::sync::Arc;
 use log::{info};
 
@@ -89,8 +89,8 @@ async fn main() {
 
     let channel_capacity = 128;
 
-    let mut packets_to_remotes_tx: HashMap<String, Arc<mpsc::Sender<OutgoingUDPPacket>>> = HashMap::new();
-    let mut packets_to_remotes_rx: HashMap<String, Arc<mpsc::Receiver<OutgoingUDPPacket>>> = HashMap::new();
+    let mut packets_to_remotes_tx: FnvHashMap<String, Arc<mpsc::Sender<OutgoingUDPPacket>>> = FnvHashMap::default();
+    let mut packets_to_remotes_rx: FnvHashMap<String, Arc<mpsc::Receiver<OutgoingUDPPacket>>> = FnvHashMap::default();
 
     for remote in &settings.remotes {
         let dev_name = get_remote_interface_name(remote);

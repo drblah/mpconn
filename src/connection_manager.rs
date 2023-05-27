@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use fnv::FnvHashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -25,7 +25,7 @@ pub struct ConnectionManager {
     bincode_config: BincodeSettings,
     interface_logger: Option<BufWriter<File>>,
     duplication_logger: Option<BufWriter<File>>,
-    packets_to_remotes_tx: HashMap<String, Arc<mpsc::Sender<OutgoingUDPPacket>>>,
+    packets_to_remotes_tx: FnvHashMap<String, Arc<mpsc::Sender<OutgoingUDPPacket>>>,
     packets_from_remotes_rx: mpsc::Receiver<IncomingUnparsedPacket>,
     packets_to_local_tx: mpsc::Sender<Vec<u8>>,
     packets_from_local_rx: mpsc::Receiver<Vec<u8>>,
@@ -36,7 +36,7 @@ pub struct ConnectionManager {
     maintenance_interval: time::Interval,
     global_sequencer_interval: time::Interval,
     keepalive_interval: time::Interval,
-    metric_channels: HashMap<String, watch::Receiver<MetricValue>>,
+    metric_channels: FnvHashMap<String, watch::Receiver<MetricValue>>,
     duplication_threshold: Option<f64>
 }
 
@@ -45,11 +45,11 @@ impl ConnectionManager {
         settings: SettingsFile,
         interface_logger: Option<BufWriter<File>>,
         duplication_logger: Option<BufWriter<File>>,
-        packets_to_remotes_tx: HashMap<String, Arc<mpsc::Sender<OutgoingUDPPacket>>>,
+        packets_to_remotes_tx: FnvHashMap<String, Arc<mpsc::Sender<OutgoingUDPPacket>>>,
         packets_from_remotes_rx: mpsc::Receiver<IncomingUnparsedPacket>,
         packets_to_local_tx: mpsc::Sender<Vec<u8>>,
         packets_from_local_rx: mpsc::Receiver<Vec<u8>>,
-        metric_channels: HashMap<String, watch::Receiver<MetricValue>>,
+        metric_channels: FnvHashMap<String, watch::Receiver<MetricValue>>,
     ) -> ConnectionManager
     {
         let bincode_config = bincode::options()
@@ -79,7 +79,6 @@ impl ConnectionManager {
             settings::LocalTypes::Layer3 { tun_ip } => Some(*tun_ip),
             settings::LocalTypes::Layer2 { .. } => None
         };
-
 
 
         ConnectionManager {

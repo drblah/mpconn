@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use fnv::FnvHashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use bytes::BytesMut;
@@ -14,15 +14,15 @@ use crate::settings::{RemoteTypes, SettingsFile};
 
 pub struct RemoteManager {
     pub remote_tasks: Vec<JoinHandle<()>>,
-    pub metric_channels: HashMap<String, watch::Receiver<MetricValue>>
+    pub metric_channels: FnvHashMap<String, watch::Receiver<MetricValue>>
 }
 
 
 impl RemoteManager {
     // new takes a SettingsFile, a tokio broadcast channel receiver, and a tokio mpsc channel sender.
-    pub fn new(settings: SettingsFile, mut packets_to_remotes_rx: HashMap<String, Arc<mpsc::Receiver<OutgoingUDPPacket>>>, raw_udp_from_remotes: mpsc::Sender<IncomingUnparsedPacket>) -> Self {
+    pub fn new(settings: SettingsFile, mut packets_to_remotes_rx: FnvHashMap<String, Arc<mpsc::Receiver<OutgoingUDPPacket>>>, raw_udp_from_remotes: mpsc::Sender<IncomingUnparsedPacket>) -> Self {
         let mut tasks = Vec::new();
-        let mut metric_channels: HashMap<String, watch::Receiver<MetricValue>> = HashMap::new();
+        let mut metric_channels: FnvHashMap<String, watch::Receiver<MetricValue>> = FnvHashMap::default();
 
         for dev in &settings.remotes {
             let device_name = get_remote_interface_name(dev);
