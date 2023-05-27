@@ -63,7 +63,7 @@ impl AsyncSendmmsg {
     }
 
     pub async fn recvmmsg(&mut self, message_buffers: &mut [[u8; 1500]; 128], received_messages: &mut Vec<(BytesMut, SocketAddr)>) -> Result<()> {
-        let mut messages = std::collections::LinkedList::new();
+        let mut messages = Vec::new();
 
         messages.extend(
             message_buffers
