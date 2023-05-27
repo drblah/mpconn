@@ -115,7 +115,7 @@ impl Layer3Director {
         }
     }
 
-    pub fn get_route(&self, packet_bytes: &BytesMut) -> Option<u16> {
+    pub fn get_route(&self, packet_bytes: &[u8]) -> Option<u16> {
         if let Some(destination_ip) = self.extract_destination_address(packet_bytes) {
             self.routing_table.get(&destination_ip).copied()
         } else {
@@ -123,7 +123,7 @@ impl Layer3Director {
         }
     }
 
-    fn extract_destination_address(&self, packet_bytes: &BytesMut) -> Option<IpAddr> {
+    fn extract_destination_address(&self, packet_bytes: &[u8]) -> Option<IpAddr> {
         match SlicedPacket::from_ip(packet_bytes) {
             Err(e) => {
                 error!("Error learning tun_ip: {}", e);
