@@ -3,6 +3,7 @@
   ],
   "keep_alive_interval": 10,
   "peer_id": 1337,
+  "duplication_threshold": -60,
   "local": {
     "type": "Layer3",
     "tun_ip": "10.12.0.2"

@@ -91,4 +91,6 @@ pub struct SettingsFile {
     /// The unique peer ID of this mpconn instance. This ID *MUST* be unique in amongst all
     /// connected peers.
     pub peer_id: u16,
+
+    pub duplication_threshold: Option<f64>,
 }
