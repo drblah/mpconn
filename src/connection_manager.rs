@@ -24,6 +24,7 @@ type BincodeSettings = WithOtherTrailing<WithOtherIntEncoding<DefaultOptions, Va
 pub struct ConnectionManager {
     bincode_config: BincodeSettings,
     interface_logger: Option<BufWriter<File>>,
+    duplication_logger: Option<BufWriter<File>>,
     packets_to_remotes_tx: HashMap<String, Arc<mpsc::Sender<OutgoingUDPPacket>>>,
     packets_from_remotes_rx: mpsc::Receiver<IncomingUnparsedPacket>,
     packets_to_local_tx: mpsc::Sender<Vec<u8>>,
@@ -43,11 +44,12 @@ impl ConnectionManager {
     pub fn new(
         settings: SettingsFile,
         interface_logger: Option<BufWriter<File>>,
+        duplication_logger: Option<BufWriter<File>>,
         packets_to_remotes_tx: HashMap<String, Arc<mpsc::Sender<OutgoingUDPPacket>>>,
         packets_from_remotes_rx: mpsc::Receiver<IncomingUnparsedPacket>,
         packets_to_local_tx: mpsc::Sender<Vec<u8>>,
         packets_from_local_rx: mpsc::Receiver<Vec<u8>>,
-        metric_channels: HashMap<String, watch::Receiver<MetricValue>>
+        metric_channels: HashMap<String, watch::Receiver<MetricValue>>,
     ) -> ConnectionManager
     {
         let bincode_config = bincode::options()
@@ -83,6 +85,7 @@ impl ConnectionManager {
         ConnectionManager {
             bincode_config,
             interface_logger,
+            duplication_logger: duplication_logger,
             packets_to_remotes_tx,
             packets_from_remotes_rx,
             packets_to_local_tx,
@@ -164,6 +167,10 @@ impl ConnectionManager {
 
                         if let Some(if_log) = &mut mut_self.interface_logger {
                             if_log.flush().await.unwrap();
+                        }
+
+                        if let Some(dup_log) = &mut mut_self.duplication_logger {
+                            dup_log.flush().await.unwrap();
                         }
 
                         for peer_id in mut_self.peer_list.get_peer_ids() {
@@ -279,7 +286,8 @@ impl ConnectionManager {
                                     packet_bytes: serialized_packet.clone(),
                                 };
 
-                                self.selective_duplication(outgoing_packet).await;
+                                let duplication_result = self.selective_duplication(outgoing_packet, tx_counter).await;
+                                Self::write_duplication_log(&mut self.duplication_logger, duplication_result.0, &duplication_result.1, duplication_result.2).await;
                             }
                         }
                         traffic_director::Path::Broadcast => {
@@ -305,7 +313,8 @@ impl ConnectionManager {
                                         packet_bytes: serialized_packet.clone(),
                                     };
 
-                                    self.selective_duplication(outgoing_packet).await;
+                                    let duplication_result = self.selective_duplication(outgoing_packet, tx_counter).await;
+                                    Self::write_duplication_log(&mut self.duplication_logger, duplication_result.0, &duplication_result.1, duplication_result.2).await;
                                 }
                             }
                         }
@@ -333,7 +342,8 @@ impl ConnectionManager {
                             packet_bytes: serialized_packet.clone(),
                         };
 
-                        self.selective_duplication(outgoing_packet).await;
+                        let duplication_result = self.selective_duplication(outgoing_packet, tx_counter).await;
+                        Self::write_duplication_log(&mut self.duplication_logger, duplication_result.0, &duplication_result.1, duplication_result.2).await;
                     }
                 }
             }
@@ -427,7 +437,16 @@ impl ConnectionManager {
         if_log.write_all(log_string.as_ref()).await.unwrap();
     }
 
-    async fn selective_duplication(&self, outgoing_packet: OutgoingUDPPacket) {
+    async fn write_duplication_log(dup_log: &mut Option<BufWriter<File>>, sequence_number: u64, decision: &str, signal_value: f64) {
+        if let Some(dup_log) = dup_log {
+            trace!("Writing duplication log!");
+            let time_stamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos();
+            let log_string = format!("{},{},{},{}\n", time_stamp, sequence_number, decision, signal_value);
+            dup_log.write_all(log_string.as_ref()).await.unwrap();
+        }
+    }
+
+    async fn selective_duplication(&self, outgoing_packet: OutgoingUDPPacket, sequence_number: u64) -> (u64, String, f64) {
         match self.duplication_threshold {
             Some(duplication_threshold) => {
                 let mut current_metrics = Vec::new();
@@ -454,25 +473,34 @@ impl ConnectionManager {
                 if let Some((interface, signal_values, channel)) = current_metrics.pop() {
                     if signal_values.rsrp >= duplication_threshold {
                         trace!("selective threshold of {} met. Sending via: {}", duplication_threshold, interface);
-                        channel.send(outgoing_packet).await.unwrap()
+                        //Self::write_duplication_log(self.duplication_logger, sequence_number, interface, signal_values.rsrp).await;
+
+                        channel.send(outgoing_packet).await.unwrap();
+                        return (sequence_number, interface.to_string(), signal_values.rsrp)
                     } else {
                         trace!("selective threshold not met. Using full duplication");
+                        //Self::write_duplication_log(self.duplication_logger, sequence_number, "full", signal_values.rsrp).await;
                         for channel in self.packets_to_remotes_tx.values() {
                             channel.send(outgoing_packet.clone()).await.unwrap()
                         }
+                        return (sequence_number, "full".to_string(), signal_values.rsrp)
                     }
                 } else {
                     trace!("No metrics defined. Using full duplication");
+                    //Self::write_duplication_log(self.duplication_logger, sequence_number, "no-metric", f64::NAN).await;
                     for channel in self.packets_to_remotes_tx.values() {
                         channel.send(outgoing_packet.clone()).await.unwrap()
                     }
+                    return (sequence_number, "no-metric".to_string(), f64::NAN)
                 }
             }
             None => {
                 trace!("No duplication threshold defined. Using full duplication");
+                //Self::write_duplication_log(self.duplication_logger, sequence_number, "no-metric", f64::NAN).await;
                 for channel in self.packets_to_remotes_tx.values() {
                     channel.send(outgoing_packet.clone()).await.unwrap()
                 }
+                return (sequence_number, "no-metric".to_string(), f64::NAN)
             }
         }
     }

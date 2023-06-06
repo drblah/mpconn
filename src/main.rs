@@ -62,14 +62,22 @@ async fn main() {
     let args = Args::parse();
 
     let mut interface_logger: Option<BufWriter<File>> = Option::None;
+    let mut duplication_logger: Option<BufWriter<File>> = Option::None;
 
     if args.debug {
         interface_logger = Some(BufWriter::new(File::create("interface.log").await.unwrap()));
+        duplication_logger = Some(BufWriter::new(File::create("duplication.log").await.unwrap()));
 
         if let Some(if_log) = &mut interface_logger {
             if_log.write_all("ts,pkt_idx,inface\n".as_ref()).await.unwrap();
 
             info!("Logging interfaces");
+        }
+
+        if let Some(dup_log) = &mut duplication_logger {
+            dup_log.write_all("ts,pkt_idx,decision,signal_value\n".as_ref()).await.unwrap();
+
+            info!("Logging Duplication");
         }
     }
 
@@ -105,11 +113,12 @@ async fn main() {
     let connection_manager = ConnectionManager::new(
         settings.clone(),
         interface_logger,
+        duplication_logger,
         packets_to_remotes_tx,
         packets_from_remotes_rx,
         packets_to_local_tx,
         packets_from_local_rx,
-        remote_manager.metric_channels.clone()
+        remote_manager.metric_channels.clone(),
     );
 
     let connection_manager = Arc::new(connection_manager);
