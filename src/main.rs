@@ -1,5 +1,5 @@
 #![feature(io_error_more)]
-#![feature(hash_drain_filter)]
+#![feature(hash_extract_if)]
 
 use std::collections::HashMap;
 use std::sync::Arc;
