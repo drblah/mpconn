@@ -65,7 +65,9 @@ async fn main() {
     let mut duplication_logger: Option<BufWriter<File>> = Option::None;
 
     if args.debug {
-        interface_logger = Some(BufWriter::new(File::create("interface.log").await.unwrap()));
+        let system_time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+        let filename = format!("{}_{}",system_time,"interface.log");
+        interface_logger = Some(BufWriter::new(File::create(filename).await.unwrap()));
         duplication_logger = Some(BufWriter::new(File::create("duplication.log").await.unwrap()));
 
         if let Some(if_log) = &mut interface_logger {
