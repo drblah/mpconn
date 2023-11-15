@@ -72,7 +72,7 @@ impl ConnectionManager {
 
         let maintenance_interval = time::interval(Duration::from_secs(5));
         let global_sequencer_interval = time::interval(Duration::from_millis(1));
-        let keepalive_interval = time::interval(Duration::from_secs(10));
+        let keepalive_interval = time::interval(Duration::from_secs(settings.keep_alive_interval));
 
         let own_peer_id = settings.peer_id;
         let own_tun_ip = match &settings.local {
