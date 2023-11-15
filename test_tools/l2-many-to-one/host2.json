@@ -2,6 +2,7 @@
   "peers": [
   ],
   "keep_alive_interval": 10,
+  "peer_connection_timeout": 30,
   "peer_id": 1337,
   "local": {
     "type": "Layer2",

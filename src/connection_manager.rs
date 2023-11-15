@@ -56,7 +56,7 @@ impl ConnectionManager {
             .with_varint_encoding()
             .allow_trailing_bytes();
 
-        let peer_list = PeerList::new(Some(settings.peers.clone()));
+        let peer_list = PeerList::new(Some(settings.peers.clone()), Duration::from_secs(settings.peer_connection_timeout));
         let traffic_director = match settings.local {
             LocalTypes::Layer2 { .. } => {
                 let td = traffic_director::Layer2Director::new();

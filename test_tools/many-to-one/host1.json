@@ -9,6 +9,7 @@
     }
   ],
   "keep_alive_interval": 10,
+  "peer_connection_timeout": 30,
   "peer_id": 5,
   "duplication_threshold": -60,
   "local": {

@@ -18,10 +18,10 @@ pub struct Peer {
 }
 
 impl PeerList {
-    pub fn new(peers: Option<Vec<PeerConfig>>) -> Self {
+    pub fn new(peers: Option<Vec<PeerConfig>>, peer_connection_timeout: Duration) -> Self {
         let mut peer_list = PeerList {
             peers: HashMap::new(),
-            stale_time_limit: Duration::from_secs(30),
+            stale_time_limit: peer_connection_timeout,
         };
 
         if let Some(peers) = peers {

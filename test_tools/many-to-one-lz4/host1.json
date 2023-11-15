@@ -9,6 +9,7 @@
     }
   ],
   "keep_alive_interval": 10,
+  "peer_connection_timeout": 30,
   "reorder": true,
   "peer_id": 0,
   "local": {

@@ -81,8 +81,11 @@ pub struct SettingsFile {
     /// One or more Peer configurations used to seed the PeerList
     pub peers: Vec<PeerConfig>,
     /// The keep alive interval at which the mpconn instance should send keep alive messages to its
-    /// peers
+    /// peers. The unit is in seconds.
     pub keep_alive_interval: u64,
+    /// The time before a peer connection is considered dead, since we last received a keepalive
+    /// The unit is in seconds.
+    pub peer_connection_timeout: u64,
     /// The type of Local mpconn should configure. Only one local can be configured at any given
     /// time
     pub local: LocalTypes,
