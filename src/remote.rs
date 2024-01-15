@@ -36,6 +36,12 @@ pub trait AsyncRemote: Send {
     fn get_interface(&self) -> String;
 
     fn get_metric_channel(&self) -> Receiver<MetricValue>;
+
+    fn is_enabled(&self) -> bool;
+
+    fn disable(&mut self);
+
+    fn enable(&mut self);
 }
 
 /// UDPRemote is used to implement an AsyncRemote
@@ -45,7 +51,8 @@ pub struct UDPremote {
     interface: String,
     input_stream: SplitStream<UdpFramed<BytesCodec>>,
     output_stream: SplitSink<UdpFramed<BytesCodec>, (Bytes, SocketAddr)>,
-    metrics: MetricType
+    metrics: MetricType,
+    enabled: bool
 }
 
 /// UDPLz4Remote builds in top of the UDPRemote by compressing
@@ -57,6 +64,18 @@ pub struct UDPLz4Remote {
 
 #[async_trait]
 impl AsyncRemote for UDPremote {
+    fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+
+    fn disable(&mut self) {
+        self.enabled = false;
+    }
+
+    fn enable(&mut self) {
+        self.enabled = true;
+    }
+
     async fn write(&mut self, buffer: Bytes, destination: SocketAddr) {
         match self.output_stream.send((buffer, destination)).await {
             Ok(_) => {}
@@ -120,13 +139,26 @@ impl UDPremote {
             interface: iface.clone(),
             input_stream: reader,
             output_stream: writer,
-            metrics: init_metric(iface.clone(), metric_config)
+            metrics: init_metric(iface.clone(), metric_config),
+            enabled: true
         }
     }
 }
 
 #[async_trait]
 impl AsyncRemote for UDPLz4Remote {
+    fn is_enabled(&self) -> bool {
+        self.inner_udp_remote.enabled
+    }
+
+    fn disable(&mut self) {
+        self.inner_udp_remote.enabled = false;
+    }
+
+    fn enable(&mut self) {
+        self.inner_udp_remote.enabled = true;
+    }
+
     async fn write(&mut self, buffer: Bytes, destination: SocketAddr) {
         let compressed = compress_prepend_size(&buffer[..]);
         match self.inner_udp_remote.output_stream.send((Bytes::from(compressed), destination)).await {
@@ -194,7 +226,8 @@ impl UDPLz4Remote {
             interface: iface.clone(),
             input_stream: reader,
             output_stream: writer,
-            metrics: init_metric(iface.clone(), metric_config)
+            metrics: init_metric(iface.clone(), metric_config),
+            enabled: true
         };
 
         UDPLz4Remote {

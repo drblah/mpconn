@@ -42,7 +42,9 @@ impl RemoteManager {
                         select! {
                             outgoing = bc.recv() => {
                                 if let Some(outgoing) = outgoing {
-                                    remote.write( Bytes::from(outgoing.packet_bytes), outgoing.destination).await
+                                    if remote.is_enabled() {
+                                        remote.write( Bytes::from(outgoing.packet_bytes), outgoing.destination).await
+                                    }
                                 }
                             }
 
