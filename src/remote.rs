@@ -9,11 +9,9 @@ use std::net::{IpAddr, UdpSocket as std_udp};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use log::error;
 use tokio::net::UdpSocket;
-use tokio::sync::watch::Receiver;
 use tokio_util::codec::BytesCodec;
 use tokio_util::udp::UdpFramed;
 use crate::internal_messages::{IncomingUnparsedPacket};
-use crate::settings::MetricConfig;
 
 
 /// AsyncRemote is the base trait used to implement Remotes
@@ -110,8 +108,7 @@ impl UDPremote {
         iface: String,
         listen_addr: Option<Ipv4Addr>,
         listen_port: u16,
-        bind_to_device: bool,
-        metric_config: MetricConfig,
+        bind_to_device: bool
     ) -> UDPremote {
         let socket = UdpFramed::new(
             make_socket(&iface, listen_addr, listen_port, bind_to_device),
@@ -185,8 +182,7 @@ impl UDPLz4Remote {
         iface: String,
         listen_addr: Option<Ipv4Addr>,
         listen_port: u16,
-        bind_to_device: bool,
-        metric_config: MetricConfig,
+        bind_to_device: bool
     ) -> UDPLz4Remote {
         let socket = UdpFramed::new(
             make_socket(&iface, listen_addr, listen_port, bind_to_device),

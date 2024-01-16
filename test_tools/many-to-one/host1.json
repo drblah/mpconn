@@ -20,22 +20,16 @@
     {
       "type": "UDP",
       "iface": "veth1",
-      "listen_addr": "172.16.200.2",
+      "listen_addr": "0.0.0.0",
       "listen_port": 10000,
-      "bind_to_device": true,
-      "metrics": {
-        "type": "Nothing"
-      }
+      "bind_to_device": true
     },
     {
       "type": "UDP",
       "iface": "veth2",
-      "listen_addr": "172.16.200.3",
+      "listen_addr": "0.0.0.0",
       "listen_port": 10000,
-      "bind_to_device": true,
-      "metrics": {
-        "type": "Nothing"
-      }
+      "bind_to_device": true
     }
   ]
 }
