@@ -20,4 +20,16 @@ pub struct Keepalive {
 pub enum Messages {
     Packet(Packet),
     Keepalive(Keepalive),
+    McConfig(McConfig),
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub struct McConfig {
+    pub configurations: Vec<McConfigEntry>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub struct McConfigEntry {
+    pub device_name: String,
+    pub enabled: bool,
 }

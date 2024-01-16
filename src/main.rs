@@ -9,7 +9,7 @@ use log::{debug, error, log_enabled, info, Level};
 extern crate core;
 extern crate alloc;
 
-use crate::messages::{Packet};
+use crate::messages::{McConfigEntry, Packet};
 use clap::Parser;
 use tokio::fs::File;
 use tokio::io::{AsyncWriteExt, BufWriter};
@@ -94,23 +94,32 @@ async fn main() {
     let mut packets_to_remotes_tx: HashMap<String, Arc<mpsc::Sender<OutgoingUDPPacket>>> = HashMap::new();
     let mut packets_to_remotes_rx: HashMap<String, Arc<mpsc::Receiver<OutgoingUDPPacket>>> = HashMap::new();
 
+
+    let mut mc_config_tx: HashMap<String, Arc<mpsc::Sender<bool>>> = HashMap::new();
+    let mut mc_config_rx: HashMap<String, Arc<mpsc::Receiver<bool>>> = HashMap::new();
+
+
     for remote in &settings.remotes {
         let dev_name = get_remote_interface_name(remote);
         let (tx, rx) = mpsc::channel::<OutgoingUDPPacket>(channel_capacity);
 
         packets_to_remotes_tx.insert(dev_name.clone(), Arc::new(tx));
-        packets_to_remotes_rx.insert(dev_name, Arc::new(rx));
+        packets_to_remotes_rx.insert(dev_name.clone(), Arc::new(rx));
+
+        let (tx, rx) = mpsc::channel::<bool>(channel_capacity);
+        mc_config_tx.insert(dev_name.clone(), Arc::new(tx));
+        mc_config_rx.insert(dev_name.clone(), Arc::new(rx));
     }
 
     let (packets_from_remotes_tx, packets_from_remotes_rx) = mpsc::channel::<IncomingUnparsedPacket>(channel_capacity);
     let (packets_to_local_tx, packets_to_local_rx) = mpsc::channel::<Vec<u8>>(channel_capacity);
     let (packets_from_local_tx, packets_from_local_rx) = mpsc::channel::<Vec<u8>>(channel_capacity);
 
-
     let mut remote_manager = RemoteManager::new(
         settings.clone(),
         packets_to_remotes_rx,
         packets_from_remotes_tx,
+        mc_config_rx
     );
 
     let connection_manager = ConnectionManager::new(
@@ -122,6 +131,7 @@ async fn main() {
         packets_to_local_tx,
         packets_from_local_rx,
         remote_manager.metric_channels.clone(),
+        mc_config_tx
     );
 
     let connection_manager = Arc::new(connection_manager);

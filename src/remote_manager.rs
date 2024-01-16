@@ -19,7 +19,7 @@ pub struct RemoteManager {
 
 impl RemoteManager {
     // new takes a SettingsFile, a tokio broadcast channel receiver, and a tokio mpsc channel sender.
-    pub fn new(settings: SettingsFile, mut packets_to_remotes_rx: HashMap<String, Arc<mpsc::Receiver<OutgoingUDPPacket>>>, raw_udp_from_remotes: mpsc::Sender<IncomingUnparsedPacket>) -> Self {
+    pub fn new(settings: SettingsFile, mut packets_to_remotes_rx: HashMap<String, Arc<mpsc::Receiver<OutgoingUDPPacket>>>, raw_udp_from_remotes: mpsc::Sender<IncomingUnparsedPacket>, mut mc_config_rx: HashMap<String, Arc<mpsc::Receiver<bool>>>) -> Self {
         let mut tasks = Vec::new();
         let mut metric_channels: HashMap<String, watch::Receiver<MetricValue>> = HashMap::new();
 
@@ -31,12 +31,14 @@ impl RemoteManager {
             let mpsc_channel = raw_udp_from_remotes.clone();
             let mut remote = Self::make_remote(dev.clone());
             let metric_channel = remote.get_metric_channel();
+            let mut config_channel = mc_config_rx.get_mut(device_name.as_str()).unwrap().clone();
 
-            metric_channels.insert(device_name, metric_channel);
+            metric_channels.insert(device_name.clone(), metric_channel);
 
             tasks.push(
                 tokio::spawn(async move {
                     let bc = Arc::get_mut(&mut bc).unwrap();
+                    let config_channel = Arc::get_mut(&mut config_channel).unwrap();
 
                     loop {
                         select! {
@@ -52,6 +54,19 @@ impl RemoteManager {
                                 let incoming = incoming.unwrap();
                                 mpsc_channel.send(incoming).await.unwrap();
                             }
+
+                            config = config_channel.recv() => {
+                                if let Some(config) = config {
+                                    if config {
+                                        debug!("Reconfigure interface: {} as enabled", device_name);
+                                        remote.enable()
+                                    } else {
+                                        debug!("Reconfigure interface: {} as disabled", device_name);
+                                        remote.disable()
+                                    }
+                                }
+                            }
+
                             /*
                             _ = metric_channel.changed() => {
                                 debug!("metric tick!");

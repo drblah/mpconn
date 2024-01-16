@@ -6,7 +6,7 @@ use bincode::config::{AllowTrailing, VarintEncoding, WithOtherIntEncoding, WithO
 use bincode::{DefaultOptions, Options};
 use bytes::BytesMut;
 use log::{debug, error, trace};
-use crate::messages::Packet;
+use crate::messages::{McConfig, Packet};
 use tokio::{select, time};
 use tokio::fs::File;
 use tokio::io::{AsyncWriteExt, BufWriter};
@@ -37,7 +37,8 @@ pub struct ConnectionManager {
     global_sequencer_interval: time::Interval,
     keepalive_interval: time::Interval,
     metric_channels: HashMap<String, watch::Receiver<MetricValue>>,
-    duplication_threshold: Option<f64>
+    duplication_threshold: Option<f64>,
+    mc_config_tx: HashMap<String, Arc<mpsc::Sender<bool>>>
 }
 
 impl ConnectionManager {
@@ -50,6 +51,7 @@ impl ConnectionManager {
         packets_to_local_tx: mpsc::Sender<Vec<u8>>,
         packets_from_local_rx: mpsc::Receiver<Vec<u8>>,
         metric_channels: HashMap<String, watch::Receiver<MetricValue>>,
+        mc_config_tx: HashMap<String, Arc<mpsc::Sender<bool>>>
     ) -> ConnectionManager
     {
         let bincode_config = bincode::options()
@@ -98,15 +100,20 @@ impl ConnectionManager {
             global_sequencer_interval,
             keepalive_interval,
             metric_channels,
-            duplication_threshold: settings.duplication_threshold
+            duplication_threshold: settings.duplication_threshold,
+            mc_config_tx
         }
     }
 
     pub async fn run(mut self: Arc<Self>) {
         self.verify_duplication_settings();
 
+        let mc_config_socket = tokio::net::UdpSocket::bind("127.0.0.1:7755").await.unwrap();
+        let mut config_buffer = [0u8; 1500];
+
         let manager_task = tokio::spawn(async move {
             loop {
+
                 let mut_self = Arc::get_mut(&mut self).unwrap();
                 select! {
 
@@ -186,6 +193,20 @@ impl ConnectionManager {
                     _ = mut_self.keepalive_interval.tick() => {
                         mut_self.handle_keepalive().await;
                     }
+
+                    Ok(config_message_length) = mc_config_socket.recv(&mut config_buffer) => {
+                        let config_packet = config_buffer[..config_message_length].to_vec();
+
+                        if let Ok(mc_config) = mut_self.parse_mc_config(config_packet) {
+                            for config in mc_config.configurations {
+                                if let Some(config_channel) = mut_self.mc_config_tx.get_mut(config.device_name.as_str()) {
+                                    config_channel.send(config.enabled).await.unwrap();
+                                }
+                            }
+                        }
+
+                        todo!()
+                    }
             }
             }
         });
@@ -222,6 +243,9 @@ impl ConnectionManager {
                         keepalive,
                         raw_udp_packet.received_from,
                     ).await;
+                }
+                Messages::McConfig(mc_config) => {
+                    unreachable!("We should never receive a McConfig message from a remote");
                 }
             },
             Err(err) => {
@@ -519,6 +543,16 @@ impl ConnectionManager {
                 }
             }
         }
+    }
+
+    fn parse_mc_config(&self, config_packet: Vec<u8>) -> std::io::Result<McConfig> {
+
+        if let Ok(Messages::McConfig(config)) = serde_json::from_slice(&config_packet) {
+            return Ok(config)
+        }
+
+
+        Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to receive McConfig"))
     }
 }
 
