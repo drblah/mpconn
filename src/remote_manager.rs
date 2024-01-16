@@ -7,13 +7,11 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use crate::get_remote_interface_name;
 use crate::internal_messages::{IncomingUnparsedPacket, OutgoingUDPPacket};
-use crate::nic_metric::MetricValue;
 use crate::remote::{AsyncRemote, UDPremote, UDPLz4Remote};
 use crate::settings::{RemoteTypes, SettingsFile};
 
 pub struct RemoteManager {
     pub remote_tasks: Vec<JoinHandle<()>>,
-    pub metric_channels: HashMap<String, watch::Receiver<MetricValue>>
 }
 
 
@@ -21,7 +19,6 @@ impl RemoteManager {
     // new takes a SettingsFile, a tokio broadcast channel receiver, and a tokio mpsc channel sender.
     pub fn new(settings: SettingsFile, mut packets_to_remotes_rx: HashMap<String, Arc<mpsc::Receiver<OutgoingUDPPacket>>>, raw_udp_from_remotes: mpsc::Sender<IncomingUnparsedPacket>, mut mc_config_rx: HashMap<String, Arc<mpsc::Receiver<bool>>>) -> Self {
         let mut tasks = Vec::new();
-        let mut metric_channels: HashMap<String, watch::Receiver<MetricValue>> = HashMap::new();
 
         for dev in &settings.remotes {
             let device_name = get_remote_interface_name(dev);
@@ -30,10 +27,7 @@ impl RemoteManager {
             let dev = dev.clone();
             let mpsc_channel = raw_udp_from_remotes.clone();
             let mut remote = Self::make_remote(dev.clone());
-            let metric_channel = remote.get_metric_channel();
             let mut config_channel = mc_config_rx.get_mut(device_name.as_str()).unwrap().clone();
-
-            metric_channels.insert(device_name.clone(), metric_channel);
 
             tasks.push(
                 tokio::spawn(async move {
@@ -87,7 +81,7 @@ impl RemoteManager {
             )
         }
 
-        Self { remote_tasks: tasks, metric_channels }
+        Self { remote_tasks: tasks }
     }
 
     pub async fn run(&mut self) {

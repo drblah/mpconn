@@ -15,7 +15,6 @@ use crate::internal_messages::{IncomingUnparsedPacket, OutgoingUDPPacket};
 use crate::messages::{Keepalive, Messages};
 use crate::peer_list::{PeerList};
 use crate::{messages, settings, traffic_director};
-use crate::nic_metric::MetricValue;
 use crate::settings::{LocalTypes, SettingsFile};
 use crate::traffic_director::DirectorType;
 
@@ -36,7 +35,6 @@ pub struct ConnectionManager {
     maintenance_interval: time::Interval,
     global_sequencer_interval: time::Interval,
     keepalive_interval: time::Interval,
-    metric_channels: HashMap<String, watch::Receiver<MetricValue>>,
     duplication_threshold: Option<f64>,
     mc_config_tx: HashMap<String, Arc<mpsc::Sender<bool>>>
 }
@@ -50,7 +48,6 @@ impl ConnectionManager {
         packets_from_remotes_rx: mpsc::Receiver<IncomingUnparsedPacket>,
         packets_to_local_tx: mpsc::Sender<Vec<u8>>,
         packets_from_local_rx: mpsc::Receiver<Vec<u8>>,
-        metric_channels: HashMap<String, watch::Receiver<MetricValue>>,
         mc_config_tx: HashMap<String, Arc<mpsc::Sender<bool>>>
     ) -> ConnectionManager
     {
@@ -99,14 +96,12 @@ impl ConnectionManager {
             maintenance_interval,
             global_sequencer_interval,
             keepalive_interval,
-            metric_channels,
             duplication_threshold: settings.duplication_threshold,
             mc_config_tx
         }
     }
 
     pub async fn run(mut self: Arc<Self>) {
-        self.verify_duplication_settings();
 
         let mc_config_socket = tokio::net::UdpSocket::bind("0.0.0.0:20000").await.unwrap();
         let mut config_buffer = [0u8; 1500];
@@ -472,90 +467,6 @@ impl ConnectionManager {
         let time_stamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos();
         let log_string = format!("{},{},{}\n", time_stamp, sequence_number, receiver_interface);
         if_log.write_all(log_string.as_ref()).await.unwrap();
-    }
-
-    async fn write_duplication_log(dup_log: &mut Option<BufWriter<File>>, sequence_number: u64, decision: &str, signal_value: f64) {
-        if let Some(dup_log) = dup_log {
-            trace!("Writing duplication log!");
-            let time_stamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos();
-            let log_string = format!("{},{},{},{}\n", time_stamp, sequence_number, decision, signal_value);
-            dup_log.write_all(log_string.as_ref()).await.unwrap();
-        }
-    }
-
-    async fn selective_duplication(&self, outgoing_packet: OutgoingUDPPacket, sequence_number: u64) -> (u64, String, f64) {
-        match self.duplication_threshold {
-            Some(duplication_threshold) => {
-                let mut current_metrics = Vec::new();
-
-                // Retrieve the current signal values for all interfaces
-                for (interface, channel) in &self.packets_to_remotes_tx {
-                    if let Some(metric_channel) = self.metric_channels.get(interface) {
-                        match metric_channel.borrow().clone() {
-                            MetricValue::Nr5gSignalValue(signal_values) => {
-                                current_metrics.push(
-                                    (interface, signal_values, channel)
-                                )
-                            }
-                            MetricValue::WiFiSignalValue(..) => { todo!() }
-                            MetricValue::NothingValue => {}
-                        }
-                    }
-                }
-
-
-                // Get the interface with the best signal, if it is above the threshold.
-                // Otherwise send on all available interfaces
-                current_metrics.sort_by(|a, b| a.1.rsrp.partial_cmp(&b.1.rsrp).expect(format!("Failed to sort current metrics. We tried to compare: {:?} and {:?}", a.1, b.1).as_str()));
-                if let Some((interface, signal_values, channel)) = current_metrics.pop() {
-                    if signal_values.rsrp >= duplication_threshold {
-                        trace!("selective threshold of {} met. Sending via: {}", duplication_threshold, interface);
-                        //Self::write_duplication_log(self.duplication_logger, sequence_number, interface, signal_values.rsrp).await;
-
-                        channel.send(outgoing_packet).await.unwrap();
-                        return (sequence_number, interface.to_string(), signal_values.rsrp)
-                    } else {
-                        trace!("selective threshold not met. Using full duplication");
-                        //Self::write_duplication_log(self.duplication_logger, sequence_number, "full", signal_values.rsrp).await;
-                        for channel in self.packets_to_remotes_tx.values() {
-                            channel.send(outgoing_packet.clone()).await.unwrap()
-                        }
-                        return (sequence_number, "full".to_string(), signal_values.rsrp)
-                    }
-                } else {
-                    trace!("No metrics defined. Using full duplication");
-                    //Self::write_duplication_log(self.duplication_logger, sequence_number, "no-metric", f64::NAN).await;
-                    for channel in self.packets_to_remotes_tx.values() {
-                        channel.send(outgoing_packet.clone()).await.unwrap()
-                    }
-                    return (sequence_number, "no-metric".to_string(), f64::NAN)
-                }
-            }
-            None => {
-                trace!("No duplication threshold defined. Using full duplication");
-                //Self::write_duplication_log(self.duplication_logger, sequence_number, "no-metric", f64::NAN).await;
-                for channel in self.packets_to_remotes_tx.values() {
-                    channel.send(outgoing_packet.clone()).await.unwrap()
-                }
-                return (sequence_number, "no-metric".to_string(), f64::NAN)
-            }
-        }
-    }
-
-    fn verify_duplication_settings(&self) {
-        if self.duplication_threshold.is_none() {
-            for (_, channel) in &self.metric_channels {
-                let value = channel.borrow().clone();
-
-                if let MetricValue::NothingValue = value {
-                    // All good
-                } else {
-                    // We have defined a metric which is not Nothing and therefore, we should
-                    // probably also have a duplication_threshold!
-                    panic!("Duplication threshold must be set, when at least one Metric configured!")
-                }
-            }
-        }
     }
 
     fn parse_mc_config(&self, config_packet: Vec<u8>) -> std::io::Result<McConfig> {

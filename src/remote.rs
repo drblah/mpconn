@@ -13,7 +13,6 @@ use tokio::sync::watch::Receiver;
 use tokio_util::codec::BytesCodec;
 use tokio_util::udp::UdpFramed;
 use crate::internal_messages::{IncomingUnparsedPacket};
-use crate::nic_metric::{init_metric, MetricType, MetricValue};
 use crate::settings::MetricConfig;
 
 
@@ -35,8 +34,6 @@ pub trait AsyncRemote: Send {
     /// is configured to use.
     fn get_interface(&self) -> String;
 
-    fn get_metric_channel(&self) -> Receiver<MetricValue>;
-
     fn is_enabled(&self) -> bool;
 
     fn disable(&mut self);
@@ -51,7 +48,6 @@ pub struct UDPremote {
     interface: String,
     input_stream: SplitStream<UdpFramed<BytesCodec>>,
     output_stream: SplitSink<UdpFramed<BytesCodec>, (Bytes, SocketAddr)>,
-    metrics: MetricType,
     enabled: bool
 }
 
@@ -107,17 +103,6 @@ impl AsyncRemote for UDPremote {
     fn get_interface(&self) -> String {
         self.interface.clone()
     }
-
-    fn get_metric_channel(&self) -> Receiver<MetricValue> {
-        match self.metrics {
-            MetricType::Nr5gSignal(ref nr_5g_rsrp) => {
-                nr_5g_rsrp.get_watch_reader()
-            }
-            MetricType::Nothing(ref nothing) => {
-                nothing.get_watch_reader()
-            }
-        }
-    }
 }
 
 impl UDPremote {
@@ -139,7 +124,6 @@ impl UDPremote {
             interface: iface.clone(),
             input_stream: reader,
             output_stream: writer,
-            metrics: init_metric(iface.clone(), metric_config),
             enabled: true
         }
     }
@@ -193,17 +177,6 @@ impl AsyncRemote for UDPLz4Remote {
     fn get_interface(&self) -> String {
         self.inner_udp_remote.interface.clone()
     }
-
-    fn get_metric_channel(&self) -> Receiver<MetricValue> {
-        match self.inner_udp_remote.metrics {
-            MetricType::Nr5gSignal(ref nr_5g_rsrp) => {
-                nr_5g_rsrp.get_watch_reader()
-            }
-            MetricType::Nothing(ref nothing) => {
-                nothing.get_watch_reader()
-            }
-        }
-    }
 }
 
 
@@ -226,7 +199,6 @@ impl UDPLz4Remote {
             interface: iface.clone(),
             input_stream: reader,
             output_stream: writer,
-            metrics: init_metric(iface.clone(), metric_config),
             enabled: true
         };
 

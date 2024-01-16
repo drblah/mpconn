@@ -33,7 +33,6 @@ mod internal_messages;
 mod remote_manager;
 mod connection_manager;
 mod local_manager;
-mod nic_metric;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
@@ -130,7 +129,6 @@ async fn main() {
         packets_from_remotes_rx,
         packets_to_local_tx,
         packets_from_local_rx,
-        remote_manager.metric_channels.clone(),
         mc_config_tx
     );
 
