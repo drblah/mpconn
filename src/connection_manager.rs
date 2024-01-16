@@ -108,7 +108,7 @@ impl ConnectionManager {
     pub async fn run(mut self: Arc<Self>) {
         self.verify_duplication_settings();
 
-        let mc_config_socket = tokio::net::UdpSocket::bind("127.0.0.1:7755").await.unwrap();
+        let mc_config_socket = tokio::net::UdpSocket::bind("0.0.0.0:20000").await.unwrap();
         let mut config_buffer = [0u8; 1500];
 
         let manager_task = tokio::spawn(async move {
@@ -194,7 +194,9 @@ impl ConnectionManager {
                         mut_self.handle_keepalive().await;
                     }
 
-                    Ok(config_message_length) = mc_config_socket.recv(&mut config_buffer) => {
+                    Ok((config_message_length, _source)) = mc_config_socket.recv_from(&mut config_buffer) => {
+                        debug!(">>> Got new config message");
+
                         let config_packet = config_buffer[..config_message_length].to_vec();
 
                         if let Ok(mc_config) = mut_self.parse_mc_config(config_packet) {
@@ -203,9 +205,9 @@ impl ConnectionManager {
                                     config_channel.send(config.enabled).await.unwrap();
                                 }
                             }
+                        } else {
+                            error!("Failed to parse McConfig message, got: {}", String::from_utf8_lossy(&config_buffer[..config_message_length]));
                         }
-
-                        todo!()
                     }
             }
             }
@@ -547,7 +549,7 @@ impl ConnectionManager {
 
     fn parse_mc_config(&self, config_packet: Vec<u8>) -> std::io::Result<McConfig> {
 
-        if let Ok(Messages::McConfig(config)) = serde_json::from_slice(&config_packet) {
+        if let Ok(config) = serde_json::from_str(&String::from_utf8_lossy(&config_packet)) {
             return Ok(config)
         }
 
