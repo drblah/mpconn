@@ -5,12 +5,12 @@ use std::time::{Duration, SystemTime};
 use bincode::config::{AllowTrailing, VarintEncoding, WithOtherIntEncoding, WithOtherTrailing};
 use bincode::{DefaultOptions, Options};
 use bytes::BytesMut;
-use log::{debug, error, trace};
+use log::{debug, error};
 use crate::messages::{McConfig, Packet};
 use tokio::{select, time};
 use tokio::fs::File;
 use tokio::io::{AsyncWriteExt, BufWriter};
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc};
 use crate::internal_messages::{IncomingUnparsedPacket, OutgoingUDPPacket};
 use crate::messages::{Keepalive, Messages};
 use crate::peer_list::{PeerList};
@@ -23,7 +23,6 @@ type BincodeSettings = WithOtherTrailing<WithOtherIntEncoding<DefaultOptions, Va
 pub struct ConnectionManager {
     bincode_config: BincodeSettings,
     interface_logger: Option<BufWriter<File>>,
-    duplication_logger: Option<BufWriter<File>>,
     packets_to_remotes_tx: HashMap<String, Arc<mpsc::Sender<OutgoingUDPPacket>>>,
     packets_from_remotes_rx: mpsc::Receiver<IncomingUnparsedPacket>,
     packets_to_local_tx: mpsc::Sender<Vec<u8>>,
@@ -35,7 +34,6 @@ pub struct ConnectionManager {
     maintenance_interval: time::Interval,
     global_sequencer_interval: time::Interval,
     keepalive_interval: time::Interval,
-    duplication_threshold: Option<f64>,
     mc_config_tx: HashMap<String, Arc<mpsc::Sender<bool>>>
 }
 
@@ -43,7 +41,6 @@ impl ConnectionManager {
     pub fn new(
         settings: SettingsFile,
         interface_logger: Option<BufWriter<File>>,
-        duplication_logger: Option<BufWriter<File>>,
         packets_to_remotes_tx: HashMap<String, Arc<mpsc::Sender<OutgoingUDPPacket>>>,
         packets_from_remotes_rx: mpsc::Receiver<IncomingUnparsedPacket>,
         packets_to_local_tx: mpsc::Sender<Vec<u8>>,
@@ -84,7 +81,6 @@ impl ConnectionManager {
         ConnectionManager {
             bincode_config,
             interface_logger,
-            duplication_logger: duplication_logger,
             packets_to_remotes_tx,
             packets_from_remotes_rx,
             packets_to_local_tx,
@@ -96,7 +92,6 @@ impl ConnectionManager {
             maintenance_interval,
             global_sequencer_interval,
             keepalive_interval,
-            duplication_threshold: settings.duplication_threshold,
             mc_config_tx
         }
     }
@@ -171,10 +166,6 @@ impl ConnectionManager {
                             if_log.flush().await.unwrap();
                         }
 
-                        if let Some(dup_log) = &mut mut_self.duplication_logger {
-                            dup_log.flush().await.unwrap();
-                        }
-
                         for peer_id in mut_self.peer_list.get_peer_ids() {
                             if let Some(peer_sequencer) = mut_self.peer_list.get_peer_sequencer(peer_id) {
                                 debug!("Sequencer packet queue length for peer: {} - {} packets",
@@ -241,7 +232,7 @@ impl ConnectionManager {
                         raw_udp_packet.received_from,
                     ).await;
                 }
-                Messages::McConfig(mc_config) => {
+                Messages::McConfig(_mc_config) => {
                     unreachable!("We should never receive a McConfig message from a remote");
                 }
             },

@@ -4,12 +4,12 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::SystemTime;
-use log::{debug, error, log_enabled, info, Level};
+use log::{info};
 
 extern crate core;
 extern crate alloc;
 
-use crate::messages::{McConfigEntry, Packet};
+use crate::messages::{Packet};
 use clap::Parser;
 use tokio::fs::File;
 use tokio::io::{AsyncWriteExt, BufWriter};
@@ -62,24 +62,16 @@ async fn main() {
     let args = Args::parse();
 
     let mut interface_logger: Option<BufWriter<File>> = Option::None;
-    let mut duplication_logger: Option<BufWriter<File>> = Option::None;
 
     if args.debug {
         let system_time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
         let filename = format!("{}_{}",system_time,"interface.log");
         interface_logger = Some(BufWriter::new(File::create(filename).await.unwrap()));
-        duplication_logger = Some(BufWriter::new(File::create("duplication.log").await.unwrap()));
 
         if let Some(if_log) = &mut interface_logger {
             if_log.write_all("ts,pkt_idx,inface\n".as_ref()).await.unwrap();
 
             info!("Logging interfaces");
-        }
-
-        if let Some(dup_log) = &mut duplication_logger {
-            dup_log.write_all("ts,pkt_idx,decision,signal_value\n".as_ref()).await.unwrap();
-
-            info!("Logging Duplication");
         }
     }
 
@@ -124,7 +116,6 @@ async fn main() {
     let connection_manager = ConnectionManager::new(
         settings.clone(),
         interface_logger,
-        duplication_logger,
         packets_to_remotes_tx,
         packets_from_remotes_rx,
         packets_to_local_tx,

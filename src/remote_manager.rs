@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bytes::Bytes;
 use log::{debug};
 use tokio::{select};
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc};
 use tokio::task::JoinHandle;
 use crate::get_remote_interface_name;
 use crate::internal_messages::{IncomingUnparsedPacket, OutgoingUDPPacket};
