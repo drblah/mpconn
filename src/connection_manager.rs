@@ -312,8 +312,12 @@ impl ConnectionManager {
                                     packet_bytes: serialized_packet.clone(),
                                 };
 
-                                let duplication_result = self.selective_duplication(outgoing_packet, tx_counter).await;
-                                Self::write_duplication_log(&mut self.duplication_logger, duplication_result.0, &duplication_result.1, duplication_result.2).await;
+                                for channel in self.packets_to_remotes_tx.values() {
+                                    channel.send(outgoing_packet.clone()).await.unwrap()
+                                }
+
+                                //let duplication_result = self.selective_duplication(outgoing_packet, tx_counter).await;
+                                //Self::write_duplication_log(&mut self.duplication_logger, duplication_result.0, &duplication_result.1, duplication_result.2).await;
                             }
                         }
                         traffic_director::Path::Broadcast => {
@@ -339,8 +343,12 @@ impl ConnectionManager {
                                         packet_bytes: serialized_packet.clone(),
                                     };
 
-                                    let duplication_result = self.selective_duplication(outgoing_packet, tx_counter).await;
-                                    Self::write_duplication_log(&mut self.duplication_logger, duplication_result.0, &duplication_result.1, duplication_result.2).await;
+                                    for channel in self.packets_to_remotes_tx.values() {
+                                        channel.send(outgoing_packet.clone()).await.unwrap()
+                                    }
+
+                                    //let duplication_result = self.selective_duplication(outgoing_packet, tx_counter).await;
+                                    //Self::write_duplication_log(&mut self.duplication_logger, duplication_result.0, &duplication_result.1, duplication_result.2).await;
                                 }
                             }
                         }
@@ -368,8 +376,11 @@ impl ConnectionManager {
                             packet_bytes: serialized_packet.clone(),
                         };
 
-                        let duplication_result = self.selective_duplication(outgoing_packet, tx_counter).await;
-                        Self::write_duplication_log(&mut self.duplication_logger, duplication_result.0, &duplication_result.1, duplication_result.2).await;
+                        for channel in self.packets_to_remotes_tx.values() {
+                            channel.send(outgoing_packet.clone()).await.unwrap()
+                        }
+                        //let duplication_result = self.selective_duplication(outgoing_packet, tx_counter).await;
+                        //Self::write_duplication_log(&mut self.duplication_logger, duplication_result.0, &duplication_result.1, duplication_result.2).await;
                     }
                 }
             }
