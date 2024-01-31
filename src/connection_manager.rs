@@ -203,8 +203,9 @@ impl ConnectionManager {
     }
 
     async fn handle_udp_packet(&mut self,
-                               raw_udp_packet: IncomingUnparsedPacket,
+                               raw_udp_packet: IncomingUnparsedPacket
     ) {
+        let source_address = raw_udp_packet.received_from;
         match self.bincode_config.deserialize::<Messages>(&raw_udp_packet.bytes) {
             Ok(decoded) => match decoded {
                 Messages::Packet(pkt) => {
@@ -214,7 +215,9 @@ impl ConnectionManager {
                         Self::write_interface_log(
                             if_log,
                             raw_udp_packet.receiver_interface.as_str(),
-                            pkt.seq).await;
+                            pkt.seq,
+                            source_address
+                        ).await;
                     }
 
                     self.handle_incoming_packet(
@@ -454,9 +457,9 @@ impl ConnectionManager {
         }
     }
 
-    async fn write_interface_log(if_log: &mut BufWriter<File>, receiver_interface: &str, sequence_number: u64) {
+    async fn write_interface_log(if_log: &mut BufWriter<File>, receiver_interface: &str, sequence_number: u64, source_address: SocketAddr) {
         let time_stamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos();
-        let log_string = format!("{},{},{}\n", time_stamp, sequence_number, receiver_interface);
+        let log_string = format!("{},{},{},{}\n", time_stamp, sequence_number, receiver_interface, source_address);
         if_log.write_all(log_string.as_ref()).await.unwrap();
     }
 

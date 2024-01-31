@@ -69,7 +69,7 @@ async fn main() {
         interface_logger = Some(BufWriter::new(File::create(filename).await.unwrap()));
 
         if let Some(if_log) = &mut interface_logger {
-            if_log.write_all("ts,pkt_idx,inface\n".as_ref()).await.unwrap();
+            if_log.write_all("ts,pkt_idx,inface,source_address\n".as_ref()).await.unwrap();
 
             info!("Logging interfaces");
         }
